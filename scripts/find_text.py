@@ -1,23 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Mon Oct 13 02:51:05 2025
+Utility to filter rows in a DataFrame by presence of identity and negative words.
 
+Provides `find_text_in_df(df, column='full_text')` which returns a filtered DataFrame.
 """
 
-import pandas as pd
-import csv
 import re
 from tqdm import tqdm
 
-# read df
-input_csv = 'xxx.csv'
-df = pd.read_csv(input_csv, sep=',', quotechar='"', quoting=csv.QUOTE_MINIMAL, escapechar='\\', engine='python', error_bad_lines=False)
-
-# clean missing
-cleaned_df = df.dropna(subset=['full_text'])
-
-# keyword
+# keyword lists
 ethnicity = [
     'indonesiër', 'indonesiërs',
     'afghaan', 'afghanen',
@@ -278,17 +270,14 @@ gender = [
     'billentikker', 'seksrelatie', 'seksuele relatie'
 ]
 
-# regex patterns (whole word, case insensitive)
+# compile regex patterns (whole word, case insensitive)
 ethnicity_pattern = re.compile(r'\b(?:' + '|'.join(map(re.escape, ethnicity)) + r')\b', flags=re.IGNORECASE)
 #religion_pattern = re.compile(r'\b(?:' + '|'.join(map(re.escape, religion)) + r')\b', flags=re.IGNORECASE)
 #gender_pattern = re.compile(r'\b(?:' + '|'.join(map(re.escape, gender)) + r')\b', flags=re.IGNORECASE)
 high_threat_pattern = re.compile(r'\b(?:' + '|'.join(map(re.escape, high_threat)) + r')\b', flags=re.IGNORECASE)
 low_status_pattern = re.compile(r'\b(?:' + '|'.join(map(re.escape, low_status)) + r')\b', flags=re.IGNORECASE)
 
-# progress bar
-tqdm.pandas(desc="Filtering rows")
 
-# find text with more than three words in both identity words and negative words
 def check_conditions(text):
     if not isinstance(text, str):
         return False
@@ -302,8 +291,46 @@ def check_conditions(text):
     # and ≥3 total of high_threat + low_status
     return ethnicity_count >= 3 and (high_threat_count + low_status_count) >= 3
 
-# use the function
-filtered_df = cleaned_df[cleaned_df['full_text'].progress_apply(check_conditions)]
+
+def find_text_in_df(df, column: str = 'full_text'):
+    """Filter `df` by applying the text check to `column` and return filtered DataFrame.
+
+    Parameters
+    - df: pandas.DataFrame
+    - column: name of the text column to inspect (default: 'full_text')
+
+    Returns
+    - pandas.DataFrame: subset of rows meeting the conditions
+    """
+    try:
+        import pandas as pd
+    except Exception:  # pragma: no cover - unlikely
+        raise ImportError("pandas is required to use find_text_in_df")
+
+    if column not in df.columns:
+        raise ValueError(f"Column '{column}' not found in DataFrame")
+
+    cleaned_df = df.dropna(subset=[column])
+
+    # enable tqdm pandas integration and apply the check
+    tqdm.pandas(desc="Filtering rows")
+    return cleaned_df[cleaned_df[column].progress_apply(check_conditions)]
+
+
+if __name__ == '__main__':
+    # simple CLI: read CSV and print number of filtered rows
+    import sys
+    import pandas as pd
+
+    if len(sys.argv) < 2:
+        print("Usage: python scripts/find_text.py <input_csv> [column]")
+        sys.exit(1)
+
+    input_csv = sys.argv[1]
+    column = sys.argv[2] if len(sys.argv) > 2 else 'full_text'
+    df = pd.read_csv(input_csv)
+    res = find_text_in_df(df, column=column)
+    print(f"Filtered rows: {len(res)}")
 
 
 
