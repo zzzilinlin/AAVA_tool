@@ -34,3 +34,9 @@ svm:
 
 naive_bayes:
   alpha: 1.0
+
+setfit:
+  model_name: "sentence-transformers/paraphrase-MiniLM-L6-v2"
+  batch_size: 16
+  num_epochs: 1
+  num_iterations: 20

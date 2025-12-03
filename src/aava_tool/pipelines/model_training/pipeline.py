@@ -17,6 +17,7 @@ def create_pipeline(**kwargs) -> Pipeline:
                     "params:gradient_boosting",
                     "params:svm",
                     "params:naive_bayes",
+                    "params:setfit",
                 ],
                 outputs="trained_models",
                 name="train_all_models_node",

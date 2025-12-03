@@ -10,3 +10,6 @@ matplotlib
 seaborn
 pydantic
 google-genai
+sentence-transformers
+setfit
+torch

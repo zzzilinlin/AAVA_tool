@@ -19,6 +19,35 @@ LABEL_NAMES = {
     3: "Very Harmful",
 }
 
+LABEL_NAMES_LIST = ["Not Harmful", "Slightly Harmful", "Harmful", "Very Harmful"]
+
+
+class SetFitWrapper:
+    """Wrapper to make SetFit model compatible with sklearn-style predict."""
+    def __init__(self, setfit_model, label_map):
+        self.setfit_model = setfit_model
+        self.label_map = label_map
+        self.reverse_label_map = {v: k for k, v in label_map.items()}
+    
+    def predict(self, texts):
+        if isinstance(texts, str):
+            texts = [texts]
+        predictions = self.setfit_model.predict(list(texts))
+        if hasattr(predictions, 'tolist'):
+            predictions = predictions.tolist()
+        numeric_predictions = []
+        for pred in predictions:
+            if isinstance(pred, str):
+                numeric_predictions.append(self.reverse_label_map.get(pred, 0))
+            else:
+                numeric_predictions.append(pred)
+        return np.array(numeric_predictions)
+    
+    def predict_proba(self, texts):
+        if isinstance(texts, str):
+            texts = [texts]
+        return self.setfit_model.predict_proba(list(texts))
+
 
 def create_tfidf_vectorizer(
     max_features: int = 5000,
@@ -200,6 +229,81 @@ def train_naive_bayes(
     }
 
 
+def train_setfit(
+    train_data: pd.DataFrame,
+    model_params: Dict[str, Any],
+    text_column: str = "text",
+    label_column: str = "label",
+) -> Dict[str, Any]:
+    """
+    Train a SetFit classifier using sentence transformers.
+    
+    SetFit is a few-shot learning framework that:
+    - Uses sentence embeddings for efficient text classification
+    - Works well with small datasets (8-16 samples per class)
+    - Doesn't require prompts like GPT-3/T0
+    
+    Args:
+        train_data: Training DataFrame.
+        model_params: Parameters for SetFit model and training.
+        text_column: Name of text column.
+        label_column: Name of label column.
+    
+    Returns:
+        Dictionary containing the trained model and metadata.
+    """
+    from datasets import Dataset
+    from setfit import SetFitModel, Trainer, TrainingArguments
+    
+    model_name = model_params.get("model_name", "sentence-transformers/paraphrase-mpnet-base-v2")
+    batch_size = model_params.get("batch_size", 16)
+    num_epochs = model_params.get("num_epochs", 1)
+    num_iterations = model_params.get("num_iterations", 20)
+    
+    X = train_data[text_column].tolist()
+    y = train_data[label_column].tolist()
+    
+    train_dataset = Dataset.from_dict({
+        "text": X,
+        "label": y
+    })
+    
+    unique_labels = sorted(train_data[label_column].unique())
+    labels = [LABEL_NAMES.get(lbl, f"Label_{lbl}") for lbl in unique_labels]
+    
+    model = SetFitModel.from_pretrained(
+        model_name,
+        labels=labels,
+    )
+    
+    args = TrainingArguments(
+        batch_size=batch_size,
+        num_epochs=num_epochs,
+        num_iterations=num_iterations,
+    )
+    
+    trainer = Trainer(
+        model=model,
+        args=args,
+        train_dataset=train_dataset,
+        column_mapping={"text": "text", "label": "label"},
+    )
+    
+    trainer.train()
+    
+    label_map = {i: LABEL_NAMES.get(i, f"Label_{i}") for i in unique_labels}
+    wrapped_model = SetFitWrapper(model, label_map)
+    
+    return {
+        "model": wrapped_model,
+        "setfit_model": model,
+        "model_name": "setfit",
+        "model_params": model_params,
+        "n_samples_trained": len(train_data),
+        "base_model": model_name,
+    }
+
+
 def train_all_models(
     train_data: pd.DataFrame,
     tfidf_params: Dict[str, Any],
@@ -208,6 +312,7 @@ def train_all_models(
     gradient_boosting_params: Dict[str, Any],
     svm_params: Dict[str, Any],
     naive_bayes_params: Dict[str, Any],
+    setfit_params: Dict[str, Any],
     text_column: str = "text",
     label_column: str = "label",
 ) -> Dict[str, Any]:
@@ -243,6 +348,15 @@ def train_all_models(
     models["naive_bayes"] = train_naive_bayes(
         train_data, tfidf_params, naive_bayes_params, text_column, label_column
     )
+    
+    print("Training SetFit (few-shot learning)...")
+    try:
+        models["setfit"] = train_setfit(
+            train_data, setfit_params, text_column, label_column
+        )
+    except Exception as e:
+        print(f"Warning: SetFit training failed: {e}")
+        print("Continuing with other models...")
     
     print(f"Successfully trained {len(models)} models.")
     return models

@@ -5,7 +5,8 @@ AAVA (Automated Article Vulnerability Assessment) is a machine learning project 
 
 ## Recent Changes (December 3, 2025)
 - Set up complete Kedro pipeline with 3 stages: data processing, model training, model evaluation
-- Trained 5 classifiers: Logistic Regression, Random Forest, Gradient Boosting, SVM, Naive Bayes
+- Trained 6 classifiers: Logistic Regression, Random Forest, Gradient Boosting, SVM, Naive Bayes, and **SetFit**
+- Added SetFit (few-shot learning) for better performance on small datasets
 - Fixed security issue: API key moved from hardcoded to environment variable
 - Fixed technical issues: stratified split handling for small datasets, ngram_range tuple conversion
 - Added automatic model comparison and best model selection based on F1 score
@@ -70,6 +71,7 @@ kedro run --pipeline train
 3. **Gradient Boosting** - High-accuracy ensemble
 4. **SVM** - Good for text classification
 5. **Naive Bayes** - Probabilistic baseline
+6. **SetFit** - Few-shot learning with sentence transformers (best for small datasets)
 
 ## Configuration
 Edit `conf/base/parameters.yml` to adjust:
@@ -83,6 +85,7 @@ Edit `conf/base/parameters.yml` to adjust:
 - scikit-learn
 - pandas, numpy
 - matplotlib, seaborn
+- setfit, sentence-transformers, torch (for SetFit)
 
 ## Data Format
 Input CSV should have columns:
