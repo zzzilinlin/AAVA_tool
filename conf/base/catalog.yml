@@ -1,4 +1,39 @@
-# Here you can define all your datasets by using simple YAML syntax.
-#
-# Documentation for this file format can be found in "The Data Catalog"
-# Link: https://docs.kedro.org/en/stable/data/data_catalog.html
+raw_annotation_data:
+  type: kedro_datasets.pandas.CSVDataset
+  filepath: notebooks/data/df_ethnicity_labeled.csv
+
+preprocessed_data:
+  type: kedro_datasets.pandas.CSVDataset
+  filepath: data/02_intermediate/preprocessed_data.csv
+
+train_data:
+  type: kedro_datasets.pandas.CSVDataset
+  filepath: data/03_primary/train_data.csv
+
+test_data:
+  type: kedro_datasets.pandas.CSVDataset
+  filepath: data/03_primary/test_data.csv
+
+data_statistics:
+  type: kedro_datasets.json.JSONDataset
+  filepath: data/08_reporting/data_statistics.json
+
+trained_models:
+  type: kedro_datasets.pickle.PickleDataset
+  filepath: data/06_models/trained_models.pkl
+
+evaluation_results:
+  type: kedro_datasets.json.JSONDataset
+  filepath: data/07_model_output/evaluation_results.json
+
+comparison_report:
+  type: kedro_datasets.json.JSONDataset
+  filepath: data/08_reporting/comparison_report.json
+
+best_model:
+  type: kedro_datasets.pickle.PickleDataset
+  filepath: data/06_models/best_model.pkl
+
+evaluation_summary:
+  type: kedro_datasets.text.TextDataset
+  filepath: data/08_reporting/evaluation_summary.txt

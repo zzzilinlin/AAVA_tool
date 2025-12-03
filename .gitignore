@@ -160,3 +160,8 @@ venv.bak/
 
 # mlflow local runs
 mlruns/*
+
+# Python libs installed by Replit
+.pythonlibs/
+.upm/
+.cache/

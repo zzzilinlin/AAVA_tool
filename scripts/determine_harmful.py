@@ -1,13 +1,14 @@
+import os
 import time
 import re
 import json
-from google.genai.errors import APIError  # The base error for the SDK
+from google.genai.errors import APIError
 import pandas as pd
 from google import genai
 from google.genai import types
 from pydantic import BaseModel
 
-API_KEY = "AIzaSyC4Qyc9Ep7far5HLa5tZhKNy_k18Ou2tSE"
+API_KEY = os.environ.get("GOOGLE_GENAI_API_KEY", "")
 
 class HarmfulJudgement(BaseModel):
     """Schema for structured, detailed notes."""

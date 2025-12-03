@@ -50,3 +50,6 @@ attr = "aava_tool.__version__"
 [tool.setuptools.packages.find]
 where = [ "src",]
 namespaces = false
+
+[tool.kedro_telemetry]
+project_id = "81fa68bce6e542f7a213fb00fd7347ee"

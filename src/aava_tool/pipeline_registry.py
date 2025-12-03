@@ -1,8 +1,11 @@
 """Project pipelines."""
 from __future__ import annotations
 
-from kedro.framework.project import find_pipelines
 from kedro.pipeline import Pipeline
+
+from aava_tool.pipelines import data_processing
+from aava_tool.pipelines import model_training
+from aava_tool.pipelines import model_evaluation
 
 
 def register_pipelines() -> dict[str, Pipeline]:
@@ -11,6 +14,15 @@ def register_pipelines() -> dict[str, Pipeline]:
     Returns:
         A mapping from pipeline names to ``Pipeline`` objects.
     """
-    pipelines = find_pipelines()
-    pipelines["__default__"] = sum(pipelines.values())
-    return pipelines
+    data_processing_pipeline = data_processing.create_pipeline()
+    model_training_pipeline = model_training.create_pipeline()
+    model_evaluation_pipeline = model_evaluation.create_pipeline()
+    
+    return {
+        "__default__": data_processing_pipeline + model_training_pipeline + model_evaluation_pipeline,
+        "data_processing": data_processing_pipeline,
+        "model_training": model_training_pipeline,
+        "model_evaluation": model_evaluation_pipeline,
+        "train": data_processing_pipeline + model_training_pipeline,
+        "evaluate": model_evaluation_pipeline,
+    }
