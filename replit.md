@@ -3,6 +3,13 @@
 ## Overview
 AAVA (Automated Article Vulnerability Assessment) is a machine learning project for classifying text content by harmfulness level. The tool trains and compares multiple ML models to predict whether content contains harmful biases or stereotypes related to ethnicity, sexual orientation, religion, or other sensitive attributes.
 
+## Recent Changes (December 3, 2025)
+- Set up complete Kedro pipeline with 3 stages: data processing, model training, model evaluation
+- Trained 5 classifiers: Logistic Regression, Random Forest, Gradient Boosting, SVM, Naive Bayes
+- Fixed security issue: API key moved from hardcoded to environment variable
+- Fixed technical issues: stratified split handling for small datasets, ngram_range tuple conversion
+- Added automatic model comparison and best model selection based on F1 score
+
 ## Project Structure
 ```
 .
