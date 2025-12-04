@@ -18,21 +18,22 @@ def create_pipeline(**kwargs) -> Pipeline:
                     "sentence_data",
                     "raw_annotation_data",
                     "participant_data",
+                    "params:sample_size",
                 ],
                 outputs="preprocessed_data",
                 name="preprocess_data_node",
-            ),
-            node(
-                func=create_train_test_split,
-                inputs=["preprocessed_data", "params:test_size", "params:random_state"],
-                outputs=["train_data", "test_data"],
-                name="train_test_split_node",
             ),
             node(
                 func=extract_features,
                 inputs="preprocessed_data",
                 outputs="data_statistics",
                 name="extract_features_node",
+            ),
+            node(
+                func=create_train_test_split,
+                inputs=["preprocessed_data", "params:test_size", "params:random_state"],
+                outputs=["train_data", "test_data"],
+                name="train_test_split_node",
             ),
         ]
     )

@@ -1,362 +1,377 @@
-"""Model training nodes for AAVA."""
+"""Model training nodes for AAVA - Dutch text classification with mixed features."""
 import pandas as pd
 import numpy as np
-from typing import Dict, Any, Tuple, List
+from typing import Dict, Any, Tuple, List, Optional
 import pickle
-import json
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
-from sklearn.svm import SVC
-from sklearn.naive_bayes import MultinomialNB
+from sklearn.preprocessing import LabelEncoder, OneHotEncoder, StandardScaler
 from sklearn.pipeline import Pipeline as SklearnPipeline
+from sklearn.compose import ColumnTransformer
+from scipy.sparse import hstack, csr_matrix
 
 
-LABEL_NAMES = {
-    0: "Not Harmful",
-    1: "Slightly Harmful",
-    2: "Harmful",
-    3: "Very Harmful",
-}
+DUTCH_STOPWORDS = [
+    'de', 'het', 'een', 'en', 'van', 'in', 'is', 'op', 'te', 'dat', 'die', 'er',
+    'voor', 'aan', 'met', 'als', 'zijn', 'ook', 'maar', 'om', 'niet', 'dan',
+    'nog', 'wel', 'naar', 'kan', 'tot', 'bij', 'of', 'over', 'door', 'worden',
+    'uit', 'al', 'zo', 'werd', 'heeft', 'haar', 'meer', 'zich', 'zou', 'tegen',
+    'nu', 'wat', 'geen', 'dit', 'hun', 'was', 'hem', 'hebben', 'deze', 'zeer',
+    'moet', 'worden', 'weer', 'ik', 'je', 'wij', 'zij', 'u', 'mij', 'jij', 'ons',
+    'jullie', 'hen', 'zelf', 'daar', 'hier', 'waar', 'wanneer', 'hoe', 'waarom'
+]
 
-LABEL_NAMES_LIST = ["Not Harmful", "Slightly Harmful", "Harmful", "Very Harmful"]
 
-
-class SetFitWrapper:
-    """Wrapper to make SetFit model compatible with sklearn-style predict."""
-    def __init__(self, setfit_model, label_map):
-        self.setfit_model = setfit_model
-        self.label_map = label_map
-        self.reverse_label_map = {v: k for k, v in label_map.items()}
+class TfidfLogRegModel:
+    """TF-IDF + Logistic Regression model with categorical and numeric features."""
     
-    def predict(self, texts):
-        if isinstance(texts, str):
-            texts = [texts]
-        predictions = self.setfit_model.predict(list(texts))
-        if hasattr(predictions, 'tolist'):
-            predictions = predictions.tolist()
-        numeric_predictions = []
-        for pred in predictions:
-            if isinstance(pred, str):
-                numeric_predictions.append(self.reverse_label_map.get(pred, 0))
-            else:
-                numeric_predictions.append(pred)
-        return np.array(numeric_predictions)
+    def __init__(self, tfidf_vectorizer, label_encoder, cat_encoder, num_scaler, classifier, 
+                 cat_columns, num_columns, text_column):
+        self.tfidf_vectorizer = tfidf_vectorizer
+        self.label_encoder = label_encoder
+        self.cat_encoder = cat_encoder
+        self.num_scaler = num_scaler
+        self.classifier = classifier
+        self.cat_columns = cat_columns
+        self.num_columns = num_columns
+        self.text_column = text_column
     
-    def predict_proba(self, texts):
-        if isinstance(texts, str):
-            texts = [texts]
-        return self.setfit_model.predict_proba(list(texts))
+    def predict(self, data: pd.DataFrame) -> np.ndarray:
+        X = self._transform_features(data)
+        predictions = self.classifier.predict(X)
+        return self.label_encoder.inverse_transform(predictions)
+    
+    def predict_proba(self, data: pd.DataFrame) -> np.ndarray:
+        X = self._transform_features(data)
+        return self.classifier.predict_proba(X)
+    
+    def _transform_features(self, data: pd.DataFrame) -> csr_matrix:
+        text_features = self.tfidf_vectorizer.transform(data[self.text_column].fillna(''))
+        
+        cat_features = None
+        if self.cat_columns and self.cat_encoder is not None:
+            cat_data = data[self.cat_columns].fillna('unknown')
+            cat_features = self.cat_encoder.transform(cat_data)
+        
+        num_features = None
+        if self.num_columns and self.num_scaler is not None:
+            num_data = data[self.num_columns].fillna(0).values
+            num_features = csr_matrix(self.num_scaler.transform(num_data))
+        
+        features_list = [text_features]
+        if cat_features is not None:
+            features_list.append(cat_features)
+        if num_features is not None:
+            features_list.append(num_features)
+        
+        return hstack(features_list)
 
 
-def create_tfidf_vectorizer(
-    max_features: int = 5000,
-    ngram_range: Tuple[int, int] = (1, 2),
-    min_df: int = 2,
-) -> TfidfVectorizer:
-    """Create a TF-IDF vectorizer with specified parameters."""
+class SbertLogRegModel:
+    """Sentence-BERT + Logistic Regression model with categorical and numeric features."""
+    
+    def __init__(self, sbert_model, label_encoder, cat_encoder, num_scaler, classifier,
+                 cat_columns, num_columns, text_column):
+        self.sbert_model = sbert_model
+        self.label_encoder = label_encoder
+        self.cat_encoder = cat_encoder
+        self.num_scaler = num_scaler
+        self.classifier = classifier
+        self.cat_columns = cat_columns
+        self.num_columns = num_columns
+        self.text_column = text_column
+    
+    def predict(self, data: pd.DataFrame) -> np.ndarray:
+        X = self._transform_features(data)
+        predictions = self.classifier.predict(X)
+        return self.label_encoder.inverse_transform(predictions)
+    
+    def predict_proba(self, data: pd.DataFrame) -> np.ndarray:
+        X = self._transform_features(data)
+        return self.classifier.predict_proba(X)
+    
+    def _transform_features(self, data: pd.DataFrame) -> np.ndarray:
+        texts = data[self.text_column].fillna('').tolist()
+        text_embeddings = self.sbert_model.encode(texts, show_progress_bar=False)
+        
+        features_list = [text_embeddings]
+        
+        if self.cat_columns and self.cat_encoder is not None:
+            cat_data = data[self.cat_columns].fillna('unknown')
+            cat_features = self.cat_encoder.transform(cat_data)
+            if hasattr(cat_features, 'toarray'):
+                cat_features = cat_features.toarray()
+            features_list.append(cat_features)
+        
+        if self.num_columns and self.num_scaler is not None:
+            num_data = data[self.num_columns].fillna(0).values
+            num_features = self.num_scaler.transform(num_data)
+            features_list.append(num_features)
+        
+        return np.hstack(features_list)
+
+
+def train_tfidf_logreg(
+    train_data: pd.DataFrame,
+    tfidf_params: Dict[str, Any],
+    logreg_params: Dict[str, Any],
+    text_column: str = "sentence",
+    label_column: str = "value",
+    cat_columns: Optional[List[str]] = None,
+    num_columns: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """
+    Train TF-IDF + Logistic Regression model with optional categorical and numeric features.
+    
+    Args:
+        train_data: Training DataFrame
+        tfidf_params: TF-IDF vectorizer parameters
+        logreg_params: Logistic Regression parameters
+        text_column: Name of text column
+        label_column: Name of label column
+        cat_columns: List of categorical column names
+        num_columns: List of numeric column names
+    
+    Returns:
+        Dictionary with trained model and metadata
+    """
+    cat_columns = cat_columns or []
+    num_columns = num_columns or []
+    
+    ngram_range = tfidf_params.get('ngram_range', (1, 2))
     if isinstance(ngram_range, list):
         ngram_range = tuple(ngram_range)
-    return TfidfVectorizer(
-        max_features=max_features,
+    
+    tfidf = TfidfVectorizer(
+        max_features=tfidf_params.get('max_features', 10000),
         ngram_range=ngram_range,
-        min_df=min_df,
-        stop_words=None,
+        min_df=tfidf_params.get('min_df', 2),
+        stop_words=DUTCH_STOPWORDS,
         lowercase=True,
-        strip_accents="unicode",
+        strip_accents='unicode',
     )
+    
+    label_encoder = LabelEncoder()
+    y = label_encoder.fit_transform(train_data[label_column].values)
+    
+    text_features = tfidf.fit_transform(train_data[text_column].fillna(''))
+    
+    cat_encoder = None
+    cat_features = None
+    if cat_columns:
+        cat_encoder = OneHotEncoder(handle_unknown='ignore', sparse_output=True)
+        cat_data = train_data[cat_columns].fillna('unknown')
+        cat_features = cat_encoder.fit_transform(cat_data)
+    
+    num_scaler = None
+    num_features = None
+    if num_columns:
+        num_scaler = StandardScaler()
+        num_data = train_data[num_columns].fillna(0).values
+        num_features = csr_matrix(num_scaler.fit_transform(num_data))
+    
+    features_list = [text_features]
+    if cat_features is not None:
+        features_list.append(cat_features)
+    if num_features is not None:
+        features_list.append(num_features)
+    
+    X = hstack(features_list)
+    
+    classifier = LogisticRegression(**logreg_params)
+    classifier.fit(X, y)
+    
+    model = TfidfLogRegModel(
+        tfidf_vectorizer=tfidf,
+        label_encoder=label_encoder,
+        cat_encoder=cat_encoder,
+        num_scaler=num_scaler,
+        classifier=classifier,
+        cat_columns=cat_columns,
+        num_columns=num_columns,
+        text_column=text_column,
+    )
+    
+    n_text_features = text_features.shape[1]
+    n_cat_features = cat_features.shape[1] if cat_features is not None else 0
+    n_num_features = len(num_columns)
+    
+    return {
+        "model": model,
+        "model_name": "tfidf_logreg",
+        "tfidf_params": tfidf_params,
+        "logreg_params": logreg_params,
+        "n_samples_trained": len(train_data),
+        "n_classes": len(label_encoder.classes_),
+        "classes": label_encoder.classes_.tolist(),
+        "n_text_features": n_text_features,
+        "n_cat_features": n_cat_features,
+        "n_num_features": n_num_features,
+        "total_features": n_text_features + n_cat_features + n_num_features,
+    }
 
 
-def train_logistic_regression(
+def train_sbert_logreg(
     train_data: pd.DataFrame,
-    tfidf_params: Dict[str, Any],
-    model_params: Dict[str, Any],
-    text_column: str = "text",
-    label_column: str = "label",
+    sbert_params: Dict[str, Any],
+    logreg_params: Dict[str, Any],
+    text_column: str = "sentence",
+    label_column: str = "value",
+    cat_columns: Optional[List[str]] = None,
+    num_columns: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """
-    Train a Logistic Regression classifier.
+    Train Sentence-BERT + Logistic Regression model with optional categorical and numeric features.
+    
+    Uses distiluse-base-multilingual-cased-v2 for Dutch text embeddings.
     
     Args:
-        train_data: Training DataFrame.
-        tfidf_params: Parameters for TF-IDF vectorizer.
-        model_params: Parameters for the classifier.
-        text_column: Name of text column.
-        label_column: Name of label column.
+        train_data: Training DataFrame
+        sbert_params: Sentence-BERT parameters
+        logreg_params: Logistic Regression parameters
+        text_column: Name of text column
+        label_column: Name of label column
+        cat_columns: List of categorical column names
+        num_columns: List of numeric column names
     
     Returns:
-        Dictionary containing the trained model and metadata.
+        Dictionary with trained model and metadata
     """
-    vectorizer = create_tfidf_vectorizer(**tfidf_params)
-    classifier = LogisticRegression(**model_params)
+    from sentence_transformers import SentenceTransformer
     
-    pipeline = SklearnPipeline([
-        ("tfidf", vectorizer),
-        ("classifier", classifier),
-    ])
+    cat_columns = cat_columns or []
+    num_columns = num_columns or []
     
-    X = train_data[text_column].values
-    y = train_data[label_column].values
+    model_name = sbert_params.get('model_name', 'sentence-transformers/distiluse-base-multilingual-cased-v2')
+    batch_size = sbert_params.get('batch_size', 32)
     
-    pipeline.fit(X, y)
+    print(f"Loading SBERT model: {model_name}")
+    sbert_model = SentenceTransformer(model_name)
     
-    return {
-        "model": pipeline,
-        "model_name": "logistic_regression",
-        "tfidf_params": tfidf_params,
-        "model_params": model_params,
-        "n_samples_trained": len(train_data),
-    }
-
-
-def train_random_forest(
-    train_data: pd.DataFrame,
-    tfidf_params: Dict[str, Any],
-    model_params: Dict[str, Any],
-    text_column: str = "text",
-    label_column: str = "label",
-) -> Dict[str, Any]:
-    """Train a Random Forest classifier."""
-    vectorizer = create_tfidf_vectorizer(**tfidf_params)
-    classifier = RandomForestClassifier(**model_params)
+    label_encoder = LabelEncoder()
+    y = label_encoder.fit_transform(train_data[label_column].values)
     
-    pipeline = SklearnPipeline([
-        ("tfidf", vectorizer),
-        ("classifier", classifier),
-    ])
+    print(f"Encoding {len(train_data)} sentences with SBERT...")
+    texts = train_data[text_column].fillna('').tolist()
+    text_embeddings = sbert_model.encode(texts, batch_size=batch_size, show_progress_bar=True)
     
-    X = train_data[text_column].values
-    y = train_data[label_column].values
+    cat_encoder = None
+    cat_features = None
+    if cat_columns:
+        cat_encoder = OneHotEncoder(handle_unknown='ignore', sparse_output=False)
+        cat_data = train_data[cat_columns].fillna('unknown')
+        cat_features = cat_encoder.fit_transform(cat_data)
     
-    pipeline.fit(X, y)
+    num_scaler = None
+    num_features = None
+    if num_columns:
+        num_scaler = StandardScaler()
+        num_data = train_data[num_columns].fillna(0).values
+        num_features = num_scaler.fit_transform(num_data)
     
-    return {
-        "model": pipeline,
-        "model_name": "random_forest",
-        "tfidf_params": tfidf_params,
-        "model_params": model_params,
-        "n_samples_trained": len(train_data),
-    }
-
-
-def train_gradient_boosting(
-    train_data: pd.DataFrame,
-    tfidf_params: Dict[str, Any],
-    model_params: Dict[str, Any],
-    text_column: str = "text",
-    label_column: str = "label",
-) -> Dict[str, Any]:
-    """Train a Gradient Boosting classifier."""
-    vectorizer = create_tfidf_vectorizer(**tfidf_params)
-    classifier = GradientBoostingClassifier(**model_params)
+    features_list = [text_embeddings]
+    if cat_features is not None:
+        features_list.append(cat_features)
+    if num_features is not None:
+        features_list.append(num_features)
     
-    pipeline = SklearnPipeline([
-        ("tfidf", vectorizer),
-        ("classifier", classifier),
-    ])
+    X = np.hstack(features_list)
     
-    X = train_data[text_column].values
-    y = train_data[label_column].values
+    print(f"Training Logistic Regression on {X.shape[1]} features...")
+    classifier = LogisticRegression(**logreg_params)
+    classifier.fit(X, y)
     
-    pipeline.fit(X, y)
-    
-    return {
-        "model": pipeline,
-        "model_name": "gradient_boosting",
-        "tfidf_params": tfidf_params,
-        "model_params": model_params,
-        "n_samples_trained": len(train_data),
-    }
-
-
-def train_svm(
-    train_data: pd.DataFrame,
-    tfidf_params: Dict[str, Any],
-    model_params: Dict[str, Any],
-    text_column: str = "text",
-    label_column: str = "label",
-) -> Dict[str, Any]:
-    """Train an SVM classifier."""
-    vectorizer = create_tfidf_vectorizer(**tfidf_params)
-    classifier = SVC(**model_params)
-    
-    pipeline = SklearnPipeline([
-        ("tfidf", vectorizer),
-        ("classifier", classifier),
-    ])
-    
-    X = train_data[text_column].values
-    y = train_data[label_column].values
-    
-    pipeline.fit(X, y)
-    
-    return {
-        "model": pipeline,
-        "model_name": "svm",
-        "tfidf_params": tfidf_params,
-        "model_params": model_params,
-        "n_samples_trained": len(train_data),
-    }
-
-
-def train_naive_bayes(
-    train_data: pd.DataFrame,
-    tfidf_params: Dict[str, Any],
-    model_params: Dict[str, Any],
-    text_column: str = "text",
-    label_column: str = "label",
-) -> Dict[str, Any]:
-    """Train a Naive Bayes classifier."""
-    vectorizer = create_tfidf_vectorizer(**tfidf_params)
-    classifier = MultinomialNB(**model_params)
-    
-    pipeline = SklearnPipeline([
-        ("tfidf", vectorizer),
-        ("classifier", classifier),
-    ])
-    
-    X = train_data[text_column].values
-    y = train_data[label_column].values
-    
-    pipeline.fit(X, y)
-    
-    return {
-        "model": pipeline,
-        "model_name": "naive_bayes",
-        "tfidf_params": tfidf_params,
-        "model_params": model_params,
-        "n_samples_trained": len(train_data),
-    }
-
-
-def train_setfit(
-    train_data: pd.DataFrame,
-    model_params: Dict[str, Any],
-    text_column: str = "text",
-    label_column: str = "label",
-) -> Dict[str, Any]:
-    """
-    Train a SetFit classifier using sentence transformers.
-    
-    SetFit is a few-shot learning framework that:
-    - Uses sentence embeddings for efficient text classification
-    - Works well with small datasets (8-16 samples per class)
-    - Doesn't require prompts like GPT-3/T0
-    
-    Args:
-        train_data: Training DataFrame.
-        model_params: Parameters for SetFit model and training.
-        text_column: Name of text column.
-        label_column: Name of label column.
-    
-    Returns:
-        Dictionary containing the trained model and metadata.
-    """
-    from datasets import Dataset
-    from setfit import SetFitModel, Trainer, TrainingArguments
-    
-    model_name = model_params.get("model_name", "sentence-transformers/paraphrase-mpnet-base-v2")
-    batch_size = model_params.get("batch_size", 16)
-    num_epochs = model_params.get("num_epochs", 1)
-    num_iterations = model_params.get("num_iterations", 20)
-    
-    X = train_data[text_column].tolist()
-    y = train_data[label_column].tolist()
-    
-    train_dataset = Dataset.from_dict({
-        "text": X,
-        "label": y
-    })
-    
-    unique_labels = sorted(train_data[label_column].unique())
-    labels = [LABEL_NAMES.get(lbl, f"Label_{lbl}") for lbl in unique_labels]
-    
-    model = SetFitModel.from_pretrained(
-        model_name,
-        labels=labels,
+    model = SbertLogRegModel(
+        sbert_model=sbert_model,
+        label_encoder=label_encoder,
+        cat_encoder=cat_encoder,
+        num_scaler=num_scaler,
+        classifier=classifier,
+        cat_columns=cat_columns,
+        num_columns=num_columns,
+        text_column=text_column,
     )
     
-    args = TrainingArguments(
-        batch_size=batch_size,
-        num_epochs=num_epochs,
-        num_iterations=num_iterations,
-    )
-    
-    trainer = Trainer(
-        model=model,
-        args=args,
-        train_dataset=train_dataset,
-        column_mapping={"text": "text", "label": "label"},
-    )
-    
-    trainer.train()
-    
-    label_map = {i: LABEL_NAMES.get(i, f"Label_{i}") for i in unique_labels}
-    wrapped_model = SetFitWrapper(model, label_map)
+    n_text_features = text_embeddings.shape[1]
+    n_cat_features = cat_features.shape[1] if cat_features is not None else 0
+    n_num_features = len(num_columns)
     
     return {
-        "model": wrapped_model,
-        "setfit_model": model,
-        "model_name": "setfit",
-        "model_params": model_params,
+        "model": model,
+        "model_name": "sbert_logreg",
+        "sbert_params": sbert_params,
+        "logreg_params": logreg_params,
         "n_samples_trained": len(train_data),
-        "base_model": model_name,
+        "n_classes": len(label_encoder.classes_),
+        "classes": label_encoder.classes_.tolist(),
+        "n_text_features": n_text_features,
+        "n_cat_features": n_cat_features,
+        "n_num_features": n_num_features,
+        "total_features": n_text_features + n_cat_features + n_num_features,
+        "embedding_dim": n_text_features,
     }
 
 
 def train_all_models(
     train_data: pd.DataFrame,
     tfidf_params: Dict[str, Any],
-    logistic_params: Dict[str, Any],
-    random_forest_params: Dict[str, Any],
-    gradient_boosting_params: Dict[str, Any],
-    svm_params: Dict[str, Any],
-    naive_bayes_params: Dict[str, Any],
-    setfit_params: Dict[str, Any],
-    text_column: str = "text",
-    label_column: str = "label",
+    logreg_params: Dict[str, Any],
+    sbert_params: Dict[str, Any],
+    text_column: str = "sentence",
+    label_column: str = "value",
+    cat_columns: Optional[List[str]] = None,
+    num_columns: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """
     Train all classifier models for comparison.
     
+    Currently trains:
+    1. TF-IDF + Logistic Regression
+    2. SBERT + Logistic Regression
+    
+    Args:
+        train_data: Training DataFrame
+        tfidf_params: TF-IDF vectorizer parameters
+        logreg_params: Logistic Regression parameters
+        sbert_params: Sentence-BERT parameters
+        text_column: Name of text column
+        label_column: Name of label column
+        cat_columns: List of categorical column names
+        num_columns: List of numeric column names
+    
     Returns:
-        Dictionary containing all trained models.
+        Dictionary containing all trained models
     """
     models = {}
     
-    print("Training Logistic Regression...")
-    models["logistic_regression"] = train_logistic_regression(
-        train_data, tfidf_params, logistic_params, text_column, label_column
-    )
+    if cat_columns is None:
+        cat_columns = ['geslacht', 'opleiding', 'politiek_int', 'politiek_pos']
+    if num_columns is None:
+        num_columns = ['leeftijd.jaar']
     
-    print("Training Random Forest...")
-    models["random_forest"] = train_random_forest(
-        train_data, tfidf_params, random_forest_params, text_column, label_column
+    print("=" * 60)
+    print("Training TF-IDF + Logistic Regression...")
+    print("=" * 60)
+    models["tfidf_logreg"] = train_tfidf_logreg(
+        train_data, tfidf_params, logreg_params, 
+        text_column, label_column, cat_columns, num_columns
     )
+    print(f"TF-IDF + LogReg: {models['tfidf_logreg']['total_features']} features")
     
-    print("Training Gradient Boosting...")
-    models["gradient_boosting"] = train_gradient_boosting(
-        train_data, tfidf_params, gradient_boosting_params, text_column, label_column
-    )
-    
-    print("Training SVM...")
-    models["svm"] = train_svm(
-        train_data, tfidf_params, svm_params, text_column, label_column
-    )
-    
-    print("Training Naive Bayes...")
-    models["naive_bayes"] = train_naive_bayes(
-        train_data, tfidf_params, naive_bayes_params, text_column, label_column
-    )
-    
-    print("Training SetFit (few-shot learning)...")
+    print()
+    print("=" * 60)
+    print("Training SBERT + Logistic Regression...")
+    print("=" * 60)
     try:
-        models["setfit"] = train_setfit(
-            train_data, setfit_params, text_column, label_column
+        models["sbert_logreg"] = train_sbert_logreg(
+            train_data, sbert_params, logreg_params,
+            text_column, label_column, cat_columns, num_columns
         )
+        print(f"SBERT + LogReg: {models['sbert_logreg']['total_features']} features (embedding dim: {models['sbert_logreg']['embedding_dim']})")
     except Exception as e:
-        print(f"Warning: SetFit training failed: {e}")
-        print("Continuing with other models...")
+        print(f"Warning: SBERT training failed: {e}")
+        print("Continuing with TF-IDF model only...")
     
+    print()
     print(f"Successfully trained {len(models)} models.")
     return models

@@ -13,19 +13,11 @@ from sklearn.metrics import (
 )
 
 
-LABEL_NAMES = {
-    0: "Not Harmful",
-    1: "Slightly Harmful",
-    2: "Harmful",
-    3: "Very Harmful",
-}
-
-
 def evaluate_single_model(
     model_data: Dict[str, Any],
     test_data: pd.DataFrame,
-    text_column: str = "text",
-    label_column: str = "label",
+    text_column: str = "sentence",
+    label_column: str = "value",
 ) -> Dict[str, Any]:
     """
     Evaluate a single model on test data.
@@ -42,10 +34,9 @@ def evaluate_single_model(
     model = model_data["model"]
     model_name = model_data["model_name"]
     
-    X_test = test_data[text_column].values
     y_true = test_data[label_column].values
     
-    y_pred = model.predict(X_test)
+    y_pred = model.predict(test_data)
     
     accuracy = accuracy_score(y_true, y_pred)
     precision = precision_score(y_true, y_pred, average="weighted", zero_division=0)
@@ -56,11 +47,11 @@ def evaluate_single_model(
     recall_per_class = recall_score(y_true, y_pred, average=None, zero_division=0)
     f1_per_class = f1_score(y_true, y_pred, average=None, zero_division=0)
     
-    conf_matrix = confusion_matrix(y_true, y_pred)
+    unique_classes = sorted(set(y_true) | set(y_pred))
+    conf_matrix = confusion_matrix(y_true, y_pred, labels=unique_classes)
     
     report = classification_report(
         y_true, y_pred,
-        target_names=[LABEL_NAMES.get(i, f"Class {i}") for i in sorted(set(y_true))],
         output_dict=True,
         zero_division=0,
     )
@@ -77,14 +68,15 @@ def evaluate_single_model(
         "confusion_matrix": conf_matrix.tolist(),
         "classification_report": report,
         "n_test_samples": len(test_data),
+        "classes": [str(c) for c in unique_classes],
     }
 
 
 def evaluate_all_models(
     trained_models: Dict[str, Any],
     test_data: pd.DataFrame,
-    text_column: str = "text",
-    label_column: str = "label",
+    text_column: str = "sentence",
+    label_column: str = "value",
 ) -> Dict[str, Any]:
     """
     Evaluate all trained models and compare performance.
@@ -211,9 +203,9 @@ def generate_evaluation_summary(
         "Label Distribution:",
     ]
     
-    if "category_distribution" in data_statistics:
-        for category, count in data_statistics["category_distribution"].items():
-            lines.append(f"  - {category}: {count}")
+    if "label_distribution" in data_statistics:
+        for label, count in data_statistics["label_distribution"].items():
+            lines.append(f"  - {label}: {count}")
     
     lines.extend([
         "",

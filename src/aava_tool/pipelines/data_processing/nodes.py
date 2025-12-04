@@ -61,13 +61,16 @@ def preprocess_data(
         sentence_data: pd.DataFrame,
         raw_annotation_data: pd.DataFrame,
         participant_data: pd.DataFrame,
+        sample_size: int = None,
         ) -> pd.DataFrame:
     """
     Preprocess the data for model training.
     
     Args:
-        df: Input DataFrame with text and labels.
-        text_column: Name of the column containing text.
+        sentence_data: DataFrame with sentence text.
+        raw_annotation_data: DataFrame with annotation results.
+        participant_data: DataFrame with participant demographics.
+        sample_size: Optional number of rows to sample for testing (None = use all data).
     
     Returns:
         Preprocessed DataFrame.
@@ -108,15 +111,22 @@ def preprocess_data(
     
     # filter unrealistic ages
     merged_annotation_data = merged_annotation_data[(merged_annotation_data['leeftijd.jaar'] >= 14) & (merged_annotation_data['leeftijd.jaar'] <= 100)]
-        
-    return merged_annotation_data.reset_index(drop=True)
+    
+    result = merged_annotation_data.reset_index(drop=True)
+    
+    # Sample for testing if sample_size is specified
+    if sample_size is not None and len(result) > sample_size:
+        print(f"Sampling {sample_size} rows from {len(result)} for testing...")
+        result = result.sample(n=sample_size, random_state=42).reset_index(drop=True)
+    
+    return result
 
 
 def create_train_test_split(
     df: pd.DataFrame,
     test_size: float = 0.2,
     random_state: int = 42,
-    stratify_column: str = "label",
+    stratify_column: str = "value",
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Split data into training and test sets.
@@ -151,7 +161,7 @@ def create_train_test_split(
     return train_df.reset_index(drop=True), test_df.reset_index(drop=True)
 
 
-def extract_features(df: pd.DataFrame, text_column: str = "text") -> Dict[str, Any]:
+def extract_features(df: pd.DataFrame, text_column: str = "sentence") -> Dict[str, Any]:
     """
     Extract text statistics and features for analysis.
     
@@ -168,10 +178,7 @@ def extract_features(df: pd.DataFrame, text_column: str = "text") -> Dict[str, A
         "text_length_std": df[text_column].str.len().std() if text_column in df.columns else 0,
     }
     
-    if "label" in df.columns:
-        stats["label_distribution"] = df["label"].value_counts().to_dict()
-    
-    if "category" in df.columns:
-        stats["category_distribution"] = df["category"].value_counts().to_dict()
+    if "value" in df.columns:
+        stats["label_distribution"] = df["value"].value_counts().to_dict()
     
     return stats
