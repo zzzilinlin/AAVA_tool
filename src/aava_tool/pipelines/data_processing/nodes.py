@@ -105,6 +105,9 @@ def preprocess_data(
     # only keep relevant columns
     relevant_columns = ['value', 'geslacht', 'leeftijd.jaar', 'opleiding', 'politiek_int', 'politiek_pos', 'sentence']
     merged_annotation_data = merged_annotation_data[relevant_columns].dropna()
+    
+    # filter unrealistic ages
+    merged_annotation_data = merged_annotation_data[(merged_annotation_data['leeftijd.jaar'] >= 14) & (merged_annotation_data['leeftijd.jaar'] <= 100)]
         
     return merged_annotation_data.reset_index(drop=True)
 
