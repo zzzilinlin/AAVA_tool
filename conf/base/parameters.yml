@@ -19,3 +19,6 @@ logistic_regression:
 sbert:
   model_name: "sentence-transformers/distiluse-base-multilingual-cased-v2"
   batch_size: 64
+
+ridge:
+  alpha: 1.0
