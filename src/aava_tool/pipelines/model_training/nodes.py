@@ -71,7 +71,7 @@ class SbertLogRegModel:
     """Sentence-BERT + Logistic Regression model with categorical and numeric features."""
     
     def __init__(self, sbert_model, label_encoder, cat_encoder, num_scaler, classifier,
-                 cat_columns, num_columns, text_column):
+                 cat_columns, num_columns, text_column, batch_size=64):
         self.sbert_model = sbert_model
         self.label_encoder = label_encoder
         self.cat_encoder = cat_encoder
@@ -80,6 +80,20 @@ class SbertLogRegModel:
         self.cat_columns = cat_columns
         self.num_columns = num_columns
         self.text_column = text_column
+        self.batch_size = batch_size
+        self._device = self._detect_device()
+    
+    def _detect_device(self) -> str:
+        """Detect best available device (CUDA GPU or CPU)."""
+        try:
+            import torch
+            if torch.cuda.is_available():
+                return "cuda"
+            elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+                return "mps"
+        except ImportError:
+            pass
+        return "cpu"
     
     def predict(self, data: pd.DataFrame) -> np.ndarray:
         X = self._transform_features(data)
@@ -92,7 +106,12 @@ class SbertLogRegModel:
     
     def _transform_features(self, data: pd.DataFrame) -> np.ndarray:
         texts = data[self.text_column].fillna('').tolist()
-        text_embeddings = self.sbert_model.encode(texts, show_progress_bar=False)
+        text_embeddings = self.sbert_model.encode(
+            texts, 
+            batch_size=self.batch_size,
+            show_progress_bar=len(texts) > 100,
+            device=self._device,
+        )
         
         features_list = [text_embeddings]
         
@@ -290,6 +309,7 @@ def train_sbert_logreg(
         cat_columns=cat_columns,
         num_columns=num_columns,
         text_column=text_column,
+        batch_size=batch_size,
     )
     
     n_text_features = text_embeddings.shape[1]
