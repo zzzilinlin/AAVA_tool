@@ -1,0 +1,32 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "uv run kedro run (debug)",
+      "type": "python",
+      "request": "launch",
+      "module": "kedro",
+      "args": [
+        "run",
+        "--to-outputs=${input:toOutputs}"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/src",
+        "KEDRO_DISABLE_TELEMETRY": "1"
+      },
+      // Change '/bin/python' to '/Scripts/python.exe' for Windows
+      "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+      "justMyCode": false
+    }
+  ],
+  "inputs": [
+    {
+      "id": "toOutputs",
+      "type": "promptString",
+      "description": "Optional value for --to-outputs (leave empty to pass an empty value)",
+      "default": ""
+    }
+  ]
+}

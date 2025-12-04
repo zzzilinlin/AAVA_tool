@@ -57,7 +57,11 @@ def clean_text(text: str) -> str:
     return text
 
 
-def preprocess_data(df: pd.DataFrame, text_column: str = "text") -> pd.DataFrame:
+def preprocess_data(
+        sentence_data: pd.DataFrame,
+        raw_annotation_data: pd.DataFrame,
+        participant_data: pd.DataFrame,
+        ) -> pd.DataFrame:
     """
     Preprocess the data for model training.
     
@@ -68,24 +72,41 @@ def preprocess_data(df: pd.DataFrame, text_column: str = "text") -> pd.DataFrame
     Returns:
         Preprocessed DataFrame.
     """
-    df = df.copy()
-    
-    if text_column in df.columns:
-        df[text_column] = df[text_column].apply(clean_text)
-        df = df[df[text_column].str.len() > 0]
-    
-    if "category" in df.columns:
-        category_mapping = {
-            "Not Harmful": 0,
-            "Slightly Harmful": 1,
-            "Harmful": 2,
-            "Very Harmful": 3,
-        }
-        df["label"] = df["category"].map(category_mapping)
-        df = df.dropna(subset=["label"])
-        df["label"] = df["label"].astype(int)
-    
-    return df
+
+    # first filter raw_annotation_data to only include responses
+    sentence_ids = np.unique(sentence_data['id'])
+    raw_annotation_data = raw_annotation_data[raw_annotation_data['unit_id'].isin(sentence_ids)]
+     
+    # merge coder data into annotation results
+    participant_data.set_index('coder', inplace=True)
+    raw_annotation_data.set_index('coder', inplace=True)
+
+    merged_annotation_data = pd.merge(
+        raw_annotation_data,
+        participant_data,
+        left_index=True,
+        right_index=True,
+        how="left"
+    )
+
+    # merge sentences into annotation results
+    sentence_data.set_index('id', inplace=True)
+    merged_annotation_data.reset_index(inplace=True)
+    merged_annotation_data.set_index('unit_id', inplace=True)
+
+    merged_annotation_data = pd.merge(
+        merged_annotation_data,
+        sentence_data,
+        left_index=True,
+        right_index=True,
+        how="left"
+    )
+
+    # only keep relevant columns
+    relevant_columns = ['value', 'geslacht', 'leeftijd.jaar', 'opleiding', 'politiek_int', 'politiek_pos', 'sentence']
+    merged_annotation_data = merged_annotation_data[relevant_columns].dropna()
+        
+    return merged_annotation_data.reset_index(drop=True)
 
 
 def create_train_test_split(

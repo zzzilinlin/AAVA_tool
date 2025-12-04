@@ -1,18 +1,26 @@
 raw_annotation_data:
   type: kedro_datasets.pandas.CSVDataset
-  filepath: notebooks/data/df_ethnicity_labeled.csv
+  filepath: data/01_raw/annotation_data/outputdata/1030_annotations.csv
+
+participant_data:
+  type: kedro_datasets.pandas.CSVDataset
+  filepath: data/01_raw/annotation_data/outputdata/1030_dynata.csv
+
+sentence_data:
+  type: kedro_datasets.pandas.CSVDataset
+  filepath: data/01_raw/annotation_data/inputdata/sentences.csv
 
 preprocessed_data:
-  type: kedro_datasets.pandas.CSVDataset
-  filepath: data/02_intermediate/preprocessed_data.csv
+  type: kedro_datasets.pandas.ParquetDataset
+  filepath: data/02_intermediate/preprocessed_data.parquet
 
 train_data:
-  type: kedro_datasets.pandas.CSVDataset
-  filepath: data/03_primary/train_data.csv
+  type: kedro_datasets.pandas.ParquetDataset
+  filepath: data/03_primary/train_data.parquet
 
 test_data:
-  type: kedro_datasets.pandas.CSVDataset
-  filepath: data/03_primary/test_data.csv
+  type: kedro_datasets.pandas.ParquetDataset
+  filepath: data/03_primary/test_data.parquet
 
 data_statistics:
   type: kedro_datasets.json.JSONDataset

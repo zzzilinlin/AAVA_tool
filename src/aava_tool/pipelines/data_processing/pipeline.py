@@ -14,7 +14,11 @@ def create_pipeline(**kwargs) -> Pipeline:
         [
             node(
                 func=preprocess_data,
-                inputs="raw_annotation_data",
+                inputs=[
+                    "sentence_data",
+                    "raw_annotation_data",
+                    "participant_data",
+                ],
                 outputs="preprocessed_data",
                 name="preprocess_data_node",
             ),
