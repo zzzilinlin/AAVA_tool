@@ -1,15 +1,15 @@
-# AAVA Tool - Harmfulness Classification
+# AAVA Tool - Dutch Opinion/Fact Classification
 
 ## Overview
-AAVA (Automated Article Vulnerability Assessment) is a machine learning project for classifying text content by harmfulness level. The tool trains and compares multiple ML models to predict whether content contains harmful biases or stereotypes related to ethnicity, sexual orientation, religion, or other sensitive attributes.
+AAVA is a machine learning pipeline for classifying Dutch text content on an opinion-to-fact scale. The tool uses text features (TF-IDF, SBERT embeddings) combined with demographic/political predictors to classify sentences into 6 categories from "Absoluut een mening" (absolute opinion) to "Absoluut feitelijk" (absolute fact).
 
-## Recent Changes (December 3, 2025)
-- Set up complete Kedro pipeline with 3 stages: data processing, model training, model evaluation
-- Trained 6 classifiers: Logistic Regression, Random Forest, Gradient Boosting, SVM, Naive Bayes, and **SetFit**
-- Added SetFit (few-shot learning) for better performance on small datasets
-- Fixed security issue: API key moved from hardcoded to environment variable
-- Fixed technical issues: stratified split handling for small datasets, ngram_range tuple conversion
-- Added automatic model comparison and best model selection based on F1 score
+## Recent Changes (December 4, 2025)
+- Implemented TF-IDF + Logistic Regression with Dutch stopwords
+- Implemented SBERT + Logistic Regression using distiluse-base-multilingual-cased-v2 embeddings
+- Added multimodal feature fusion: text features + categorical (one-hot) + numeric (scaled)
+- Added `sample_size` parameter for faster pipeline testing (default: 500 rows)
+- Pipeline runs end-to-end in ~28 seconds on sampled data
+- Fixed git issues: added checkpoints/ to .gitignore
 
 ## Project Structure
 ```
@@ -19,25 +19,24 @@ AAVA (Automated Article Vulnerability Assessment) is a machine learning project 
 │   │   ├── catalog.yml     # Data catalog definitions
 │   │   └── parameters.yml  # Model and pipeline parameters
 │   └── local/              # Local overrides (gitignored)
-├── data/                   # Data directories (Kedro data engineering convention)
-│   ├── 01_raw/            # Raw input data
+├── data/                   # Data directories (Kedro convention)
+│   ├── 01_raw/            # Raw input data (CSV files)
 │   ├── 02_intermediate/   # Preprocessed data
 │   ├── 03_primary/        # Train/test splits
 │   ├── 06_models/         # Trained model files
 │   ├── 07_model_output/   # Model predictions/evaluations
 │   └── 08_reporting/      # Reports and summaries
-├── notebooks/             # Jupyter notebooks and sample data
-├── scripts/               # Utility scripts
 ├── src/aava_tool/         # Main source code
 │   └── pipelines/        # Kedro pipelines
 │       ├── data_processing/  # Data loading and preprocessing
-│       ├── model_training/   # Train multiple classifiers
+│       ├── model_training/   # Train classifiers
 │       └── model_evaluation/ # Evaluate and compare models
 └── tests/                 # Unit tests
+```
 
 ## Running the Pipeline
 
-### Full Pipeline (Data Processing + Training + Evaluation)
+### Full Pipeline
 ```bash
 kedro run
 # or
@@ -46,57 +45,53 @@ python main.py
 
 ### Individual Pipelines
 ```bash
-# Data processing only
 kedro run --pipeline data_processing
-
-# Training only
 kedro run --pipeline model_training
-
-# Evaluation only  
 kedro run --pipeline model_evaluation
-
-# Training without evaluation
-kedro run --pipeline train
 ```
 
-## Classification Labels
-- **Not Harmful** (0): Content with no harmful biases
-- **Slightly Harmful** (1): Content with minor bias indicators
-- **Harmful** (2): Content with notable harmful stereotypes
-- **Very Harmful** (3): Content with severe harmful biases
+## Classification Labels (6-class scale)
+1. **Absoluut een mening** - Absolute opinion
+2. **Overwegend een mening** - Predominantly opinion
+3. **Gedeeltelijk een mening** - Partially opinion
+4. **Gedeeltelijk feitelijk** - Partially factual
+5. **Overwegend feitelijk** - Predominantly factual
+6. **Absoluut feitelijk** - Absolute fact
 
 ## Models Trained
-1. **Logistic Regression** - Fast, interpretable baseline
-2. **Random Forest** - Ensemble with feature importance
-3. **Gradient Boosting** - High-accuracy ensemble
-4. **SVM** - Good for text classification
-5. **Naive Bayes** - Probabilistic baseline
-6. **SetFit** - Few-shot learning with sentence transformers (best for small datasets)
+1. **TF-IDF + Logistic Regression** - Dutch stopwords, bigrams (1,2), combined with categorical/numeric features (600-10,000 features)
+2. **SBERT + Logistic Regression** - distiluse-base-multilingual-cased-v2 embeddings (512-dim) combined with categorical/numeric features (536 features)
+
+## Feature Set
+- **Text column**: `sentence` (Dutch text)
+- **Categorical predictors**: `geslacht`, `opleiding`, `politiek_int`, `politiek_pos` (one-hot encoded)
+- **Numeric predictor**: `leeftijd.jaar` (scaled)
+- **Target**: `value` (6-class opinion/fact scale)
 
 ## Configuration
 Edit `conf/base/parameters.yml` to adjust:
+- `sample_size`: Number of rows to sample for testing (null = full dataset ~84k rows)
 - `test_size`: Train/test split ratio (default: 0.2)
-- `tfidf`: Text vectorization parameters
-- Model-specific hyperparameters
+- `tfidf`: max_features, ngram_range, min_df
+- `sbert`: model_name, batch_size
+- `logistic_regression`: max_iter, C, class_weight
 
 ## Dependencies
 - Python 3.11+
-- Kedro 1.0.0
+- Kedro
 - scikit-learn
 - pandas, numpy
-- matplotlib, seaborn
-- setfit, sentence-transformers, torch (for SetFit)
+- sentence-transformers (for SBERT model)
 
 ## Data Format
-Input CSV should have columns:
-- `text`: Article/content text
-- `category`: Harmfulness label (optional, for training)
-- `justification`: Annotation notes (optional)
+Input CSV files in `data/01_raw/`:
+- `sentences.csv`: `id`, `sentence`
+- `raw_annotation_data.csv`: `coder`, `unit_id`, `value`
+- `participant_data.csv`: `coder`, `geslacht`, `leeftijd.jaar`, `opleiding`, `politiek_int`, `politiek_pos`
 
-## Adding New Data
-1. Place CSV files in `data/01_raw/`
-2. Update `conf/base/catalog.yml` to reference new files
-3. Run the pipeline
+## Current Performance (500 sample)
+- TF-IDF + LogReg: 22% accuracy, 0.22 F1 (weighted)
+- SBERT + LogReg: 19% accuracy, 0.20 F1 (weighted)
+- Random baseline: ~16.7% (6 classes)
 
-## Environment Variables
-- `GOOGLE_GENAI_API_KEY`: For LLM-based annotation (optional)
+Performance expected to improve significantly with full dataset training.
