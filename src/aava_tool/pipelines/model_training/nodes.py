@@ -57,7 +57,8 @@ class TfidfModel:
             num_features = csr_matrix(self.num_scaler.transform(num_data))
             features_list.append(num_features)
         
-        return hstack(features_list)
+        result = hstack(features_list)
+        return result
 
 
 class SbertModel:

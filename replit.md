@@ -1,15 +1,17 @@
-# AAVA Tool - Dutch Opinion/Fact Classification
+# AAVA Tool - Dutch Harmfulness Classification
 
 ## Overview
-AAVA is a machine learning pipeline for classifying Dutch text content on an opinion-to-fact scale. The tool uses text features (TF-IDF, SBERT embeddings) combined with demographic/political predictors to classify sentences into 6 categories from "Absoluut een mening" (absolute opinion) to "Absoluut feitelijk" (absolute fact).
+AAVA is a machine learning pipeline for classifying Dutch text content by harmfulness level. The tool trains two types of models:
+1. **General Models** - Classify harmfulness based solely on text content (sentence)
+2. **Feature-Aware Models** - Classify harmfulness using text + demographic features to predict how different groups perceive harmfulness
 
-## Recent Changes (December 4, 2025)
-- Implemented TF-IDF + Logistic Regression with Dutch stopwords
-- Implemented SBERT + Logistic Regression using distiluse-base-multilingual-cased-v2 embeddings
-- Added multimodal feature fusion: text features + categorical (one-hot) + numeric (scaled)
-- Added `sample_size` parameter for faster pipeline testing (default: 500 rows)
-- Pipeline runs end-to-end in ~28 seconds on sampled data
-- Fixed git issues: added checkpoints/ to .gitignore
+## Recent Changes (December 11, 2025)
+- Implemented dual model approach: General (text-only) vs Feature-Aware (text + demographics)
+- Updated for 3-class harmfulness classification: "low", "medium", "high"
+- New data format with `sentence` and `article` columns
+- Demographic features: gender, age, education_level, ethnicity, nationality
+- TF-IDF General model achieves 73% accuracy on dummy data (best performer)
+- SBERT using paraphrase-multilingual-mpnet-base-v2 (768-dim embeddings)
 
 ## Project Structure
 ```
@@ -50,28 +52,36 @@ kedro run --pipeline model_training
 kedro run --pipeline model_evaluation
 ```
 
-## Classification Labels (6-class scale)
-1. **Absoluut een mening** - Absolute opinion
-2. **Overwegend een mening** - Predominantly opinion
-3. **Gedeeltelijk een mening** - Partially opinion
-4. **Gedeeltelijk feitelijk** - Partially factual
-5. **Overwegend feitelijk** - Predominantly factual
-6. **Absoluut feitelijk** - Absolute fact
+## Classification Labels (3-class harmfulness)
+- **low** - Not harmful or minimally harmful content
+- **medium** - Moderately harmful content
+- **high** - Highly harmful content
 
-## Models Trained
-1. **TF-IDF + Logistic Regression** - Dutch stopwords, bigrams (1,2), combined with categorical/numeric features (600-10,000 features)
-2. **SBERT + Logistic Regression** - distiluse-base-multilingual-cased-v2 embeddings (512-dim) combined with categorical/numeric features (536 features)
+## Models Trained (4 total)
+
+### General Models (Text Only)
+1. **TF-IDF General** - TF-IDF + Logistic Regression using only sentence text
+2. **SBERT General** - Sentence-BERT embeddings + Logistic Regression using only sentence text
+
+### Feature-Aware Models (Text + Demographics)
+3. **TF-IDF Feature-Aware** - TF-IDF + demographics (gender, age, education, ethnicity, nationality)
+4. **SBERT Feature-Aware** - SBERT embeddings + demographics
 
 ## Feature Set
-- **Text column**: `sentence` (Dutch text)
-- **Categorical predictors**: `geslacht`, `opleiding`, `politiek_int`, `politiek_pos` (one-hot encoded)
-- **Numeric predictor**: `leeftijd.jaar` (scaled)
-- **Target**: `value` (6-class opinion/fact scale)
+- **Text column**: `sentence` (Dutch text to classify)
+- **Article context**: `article` (full article context, available for future use)
+- **Categorical predictors**: `gender`, `education_level`, `ethnicity`, `nationality` (one-hot encoded)
+- **Numeric predictor**: `age` (scaled)
+- **Target**: `harmfulness_level` (3-class: low/medium/high)
 
 ## Configuration
 Edit `conf/base/parameters.yml` to adjust:
-- `sample_size`: Number of rows to sample for testing (null = full dataset ~84k rows)
+- `sample_size`: Number of rows to sample for testing (null = full dataset)
 - `test_size`: Train/test split ratio (default: 0.2)
+- `text_column`: Column containing text to classify (default: "sentence")
+- `label_column`: Target column (default: "harmfulness_level")
+- `cat_columns`: List of categorical feature columns
+- `num_columns`: List of numeric feature columns
 - `tfidf`: max_features, ngram_range, min_df
 - `sbert`: model_name, batch_size
 - `logistic_regression`: max_iter, C, class_weight
@@ -81,17 +91,28 @@ Edit `conf/base/parameters.yml` to adjust:
 - Kedro
 - scikit-learn
 - pandas, numpy
-- sentence-transformers (for SBERT model)
+- sentence-transformers (for SBERT models)
 
 ## Data Format
-Input CSV files in `data/01_raw/`:
-- `sentences.csv`: `id`, `sentence`
-- `raw_annotation_data.csv`: `coder`, `unit_id`, `value`
-- `participant_data.csv`: `coder`, `geslacht`, `leeftijd.jaar`, `opleiding`, `politiek_int`, `politiek_pos`
+Input CSV file in `data/01_raw/`:
+- `dummy_data_preprocessed.csv`: Contains columns:
+  - `sentence`: Text to classify
+  - `article`: Full article context
+  - `harmfulness_level`: Target label (low/medium/high)
+  - `gender`: Annotator gender
+  - `age`: Annotator age
+  - `education_level`: Annotator education
+  - `ethnicity`: Annotator ethnicity
+  - `nationality`: Annotator nationality
 
-## Current Performance (500 sample)
-- TF-IDF + LogReg: 22% accuracy, 0.22 F1 (weighted)
-- SBERT + LogReg: 19% accuracy, 0.20 F1 (weighted)
-- Random baseline: ~16.7% (6 classes)
+## Current Performance (1000 sample)
 
-Performance expected to improve significantly with full dataset training.
+### General Models (Text Only)
+- **TF-IDF General**: 73% accuracy, 0.72 F1 (weighted) ⭐ Best
+- **SBERT General**: 57.5% accuracy, 0.62 F1 (weighted)
+
+### Feature-Aware Models (Text + Demographics)
+- **TF-IDF Feature-Aware**: 66% accuracy, 0.68 F1 (weighted)
+- **SBERT Feature-Aware**: 60% accuracy, 0.64 F1 (weighted)
+
+Note: On the dummy data, general (text-only) models outperform feature-aware models, suggesting the harmfulness labels in the dummy data are primarily text-driven rather than demographic-driven.
