@@ -1,14 +1,6 @@
-raw_annotation_data:
+dummy_data:
   type: kedro_datasets.pandas.CSVDataset
-  filepath: data/01_raw/annotation_data/outputdata/1030_annotations.csv
-
-participant_data:
-  type: kedro_datasets.pandas.CSVDataset
-  filepath: data/01_raw/annotation_data/outputdata/1030_dynata.csv
-
-sentence_data:
-  type: kedro_datasets.pandas.CSVDataset
-  filepath: data/01_raw/annotation_data/inputdata/sentences.csv
+  filepath: data/01_raw/dummy_data_preprocessed.csv
 
 preprocessed_data:
   type: kedro_datasets.pandas.ParquetDataset

@@ -1,10 +1,22 @@
 test_size: 0.2
 random_state: 42
 selection_metric: "f1_weighted"
-sample_size: 500
+sample_size: 1000
+
+text_column: "sentence"
+label_column: "harmfulness_level"
+
+cat_columns:
+  - gender
+  - education_level
+  - ethnicity
+  - nationality
+
+num_columns:
+  - age
 
 tfidf:
-  max_features: 10000
+  max_features: 5000
   ngram_range: [1, 2]
   min_df: 2
 
@@ -19,6 +31,3 @@ logistic_regression:
 sbert:
   model_name: "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
   batch_size: 64
-
-ridge:
-  alpha: 1.0
