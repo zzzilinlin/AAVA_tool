@@ -14,6 +14,7 @@ def create_pipeline(**kwargs) -> Pipeline:
                     "params:tfidf",
                     "params:logistic_regression",
                     "params:sbert",
+                    "params:ridge",
                 ],
                 outputs="trained_models",
                 name="train_all_models_node",

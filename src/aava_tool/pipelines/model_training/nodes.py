@@ -4,11 +4,57 @@ import numpy as np
 from typing import Dict, Any, Tuple, List, Optional
 import pickle
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.linear_model import LogisticRegression
+from sklearn.linear_model import LogisticRegression, Ridge
 from sklearn.preprocessing import LabelEncoder, OneHotEncoder, StandardScaler
 from sklearn.pipeline import Pipeline as SklearnPipeline
 from sklearn.compose import ColumnTransformer
 from scipy.sparse import hstack, csr_matrix
+
+
+class OrdinalEncoder:
+    """Maps ordinal labels to continuous 0-100 scale and back."""
+    
+    def __init__(self):
+        self.label_to_value = {}
+        self.value_to_label = {}
+        self.sorted_labels = []
+        self.values = []
+    
+    def fit(self, labels: np.ndarray) -> 'OrdinalEncoder':
+        """Fit the encoder to ordinal labels."""
+        unique_labels = sorted(set(labels))
+        n_classes = len(unique_labels)
+        self.sorted_labels = unique_labels
+        self.values = np.linspace(0, 100, n_classes)
+        
+        self.label_to_value = {label: value for label, value in zip(unique_labels, self.values)}
+        self.value_to_label = {value: label for label, value in zip(unique_labels, self.values)}
+        
+        return self
+    
+    def transform(self, labels: np.ndarray) -> np.ndarray:
+        """Transform labels to continuous values."""
+        return np.array([self.label_to_value[label] for label in labels])
+    
+    def fit_transform(self, labels: np.ndarray) -> np.ndarray:
+        """Fit and transform labels."""
+        self.fit(labels)
+        return self.transform(labels)
+    
+    def inverse_transform(self, values: np.ndarray) -> np.ndarray:
+        """Transform continuous values back to nearest ordinal labels."""
+        result = []
+        for value in values:
+            value = np.clip(value, 0, 100)
+            distances = np.abs(self.values - value)
+            nearest_idx = np.argmin(distances)
+            result.append(self.sorted_labels[nearest_idx])
+        return np.array(result)
+    
+    @property
+    def classes_(self) -> List:
+        """Return the classes in order."""
+        return self.sorted_labels
 
 
 DUTCH_STOPWORDS = [
@@ -103,6 +149,118 @@ class SbertLogRegModel:
     def predict_proba(self, data: pd.DataFrame) -> np.ndarray:
         X = self._transform_features(data)
         return self.classifier.predict_proba(X)
+    
+    def _transform_features(self, data: pd.DataFrame) -> np.ndarray:
+        texts = data[self.text_column].fillna('').tolist()
+        text_embeddings = self.sbert_model.encode(
+            texts, 
+            batch_size=self.batch_size,
+            show_progress_bar=len(texts) > 100,
+            device=self._device,
+        )
+        
+        features_list = [text_embeddings]
+        
+        if self.cat_columns and self.cat_encoder is not None:
+            cat_data = data[self.cat_columns].fillna('unknown')
+            cat_features = self.cat_encoder.transform(cat_data)
+            if hasattr(cat_features, 'toarray'):
+                cat_features = cat_features.toarray()
+            features_list.append(cat_features)
+        
+        if self.num_columns and self.num_scaler is not None:
+            num_data = data[self.num_columns].fillna(0).values
+            num_features = self.num_scaler.transform(num_data)
+            features_list.append(num_features)
+        
+        return np.hstack(features_list)
+
+
+class TfidfOrdinalModel:
+    """TF-IDF + Ridge Regression model treating ordinal labels as continuous 0-100 scale."""
+    
+    def __init__(self, tfidf_vectorizer, ordinal_encoder, cat_encoder, num_scaler, regressor, 
+                 cat_columns, num_columns, text_column):
+        self.tfidf_vectorizer = tfidf_vectorizer
+        self.ordinal_encoder = ordinal_encoder
+        self.cat_encoder = cat_encoder
+        self.num_scaler = num_scaler
+        self.regressor = regressor
+        self.cat_columns = cat_columns
+        self.num_columns = num_columns
+        self.text_column = text_column
+    
+    def predict(self, data: pd.DataFrame) -> np.ndarray:
+        """Predict ordinal labels by regressing to 0-100 and mapping back."""
+        X = self._transform_features(data)
+        continuous_predictions = self.regressor.predict(X)
+        return self.ordinal_encoder.inverse_transform(continuous_predictions)
+    
+    def predict_continuous(self, data: pd.DataFrame) -> np.ndarray:
+        """Return raw continuous predictions (0-100 scale)."""
+        X = self._transform_features(data)
+        return self.regressor.predict(X)
+    
+    def _transform_features(self, data: pd.DataFrame) -> csr_matrix:
+        text_features = self.tfidf_vectorizer.transform(data[self.text_column].fillna(''))
+        
+        cat_features = None
+        if self.cat_columns and self.cat_encoder is not None:
+            cat_data = data[self.cat_columns].fillna('unknown')
+            cat_features = self.cat_encoder.transform(cat_data)
+        
+        num_features = None
+        if self.num_columns and self.num_scaler is not None:
+            num_data = data[self.num_columns].fillna(0).values
+            num_features = csr_matrix(self.num_scaler.transform(num_data))
+        
+        features_list = [text_features]
+        if cat_features is not None:
+            features_list.append(cat_features)
+        if num_features is not None:
+            features_list.append(num_features)
+        
+        return hstack(features_list)
+
+
+class SbertOrdinalModel:
+    """Sentence-BERT + Ridge Regression model treating ordinal labels as continuous 0-100 scale."""
+    
+    def __init__(self, sbert_model, ordinal_encoder, cat_encoder, num_scaler, regressor,
+                 cat_columns, num_columns, text_column, batch_size=64):
+        self.sbert_model = sbert_model
+        self.ordinal_encoder = ordinal_encoder
+        self.cat_encoder = cat_encoder
+        self.num_scaler = num_scaler
+        self.regressor = regressor
+        self.cat_columns = cat_columns
+        self.num_columns = num_columns
+        self.text_column = text_column
+        self.batch_size = batch_size
+        self._device = self._detect_device()
+    
+    def _detect_device(self) -> str:
+        """Detect best available device (CUDA GPU or CPU)."""
+        try:
+            import torch
+            if torch.cuda.is_available():
+                return "cuda"
+            elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+                return "mps"
+        except ImportError:
+            pass
+        return "cpu"
+    
+    def predict(self, data: pd.DataFrame) -> np.ndarray:
+        """Predict ordinal labels by regressing to 0-100 and mapping back."""
+        X = self._transform_features(data)
+        continuous_predictions = self.regressor.predict(X)
+        return self.ordinal_encoder.inverse_transform(continuous_predictions)
+    
+    def predict_continuous(self, data: pd.DataFrame) -> np.ndarray:
+        """Return raw continuous predictions (0-100 scale)."""
+        X = self._transform_features(data)
+        return self.regressor.predict(X)
     
     def _transform_features(self, data: pd.DataFrame) -> np.ndarray:
         texts = data[self.text_column].fillna('').tolist()
@@ -332,11 +490,214 @@ def train_sbert_logreg(
     }
 
 
+def train_tfidf_ordinal(
+    train_data: pd.DataFrame,
+    tfidf_params: Dict[str, Any],
+    ridge_params: Dict[str, Any],
+    text_column: str = "sentence",
+    label_column: str = "value",
+    cat_columns: Optional[List[str]] = None,
+    num_columns: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """
+    Train TF-IDF + Ridge Regression model treating ordinal labels as continuous 0-100 scale.
+    
+    Args:
+        train_data: Training DataFrame
+        tfidf_params: TF-IDF vectorizer parameters
+        ridge_params: Ridge Regression parameters
+        text_column: Name of text column
+        label_column: Name of label column
+        cat_columns: List of categorical column names
+        num_columns: List of numeric column names
+    
+    Returns:
+        Dictionary with trained model and metadata
+    """
+    cat_columns = cat_columns or []
+    num_columns = num_columns or []
+    
+    ngram_range = tfidf_params.get('ngram_range', (1, 2))
+    if isinstance(ngram_range, list):
+        ngram_range = tuple(ngram_range)
+    
+    tfidf = TfidfVectorizer(
+        max_features=tfidf_params.get('max_features', 10000),
+        ngram_range=ngram_range,
+        min_df=tfidf_params.get('min_df', 2),
+        stop_words=DUTCH_STOPWORDS,
+        lowercase=True,
+        strip_accents='unicode',
+    )
+    
+    ordinal_encoder = OrdinalEncoder()
+    y = ordinal_encoder.fit_transform(train_data[label_column].values)
+    
+    text_features = tfidf.fit_transform(train_data[text_column].fillna(''))
+    
+    cat_encoder = None
+    cat_features = None
+    if cat_columns:
+        cat_encoder = OneHotEncoder(handle_unknown='ignore', sparse_output=True)
+        cat_data = train_data[cat_columns].fillna('unknown')
+        cat_features = cat_encoder.fit_transform(cat_data)
+    
+    num_scaler = None
+    num_features = None
+    if num_columns:
+        num_scaler = StandardScaler()
+        num_data = train_data[num_columns].fillna(0).values
+        num_features = csr_matrix(num_scaler.fit_transform(num_data))
+    
+    features_list = [text_features]
+    if cat_features is not None:
+        features_list.append(cat_features)
+    if num_features is not None:
+        features_list.append(num_features)
+    
+    X = hstack(features_list)
+    
+    regressor = Ridge(**ridge_params)
+    regressor.fit(X, y)
+    
+    model = TfidfOrdinalModel(
+        tfidf_vectorizer=tfidf,
+        ordinal_encoder=ordinal_encoder,
+        cat_encoder=cat_encoder,
+        num_scaler=num_scaler,
+        regressor=regressor,
+        cat_columns=cat_columns,
+        num_columns=num_columns,
+        text_column=text_column,
+    )
+    
+    n_text_features = text_features.shape[1]
+    n_cat_features = cat_features.shape[1] if cat_features is not None else 0
+    n_num_features = len(num_columns)
+    
+    return {
+        "model": model,
+        "model_name": "tfidf_ordinal",
+        "tfidf_params": tfidf_params,
+        "ridge_params": ridge_params,
+        "n_samples_trained": len(train_data),
+        "n_classes": len(ordinal_encoder.classes_),
+        "classes": ordinal_encoder.classes_,
+        "ordinal_mapping": ordinal_encoder.label_to_value,
+        "n_text_features": n_text_features,
+        "n_cat_features": n_cat_features,
+        "n_num_features": n_num_features,
+        "total_features": n_text_features + n_cat_features + n_num_features,
+    }
+
+
+def train_sbert_ordinal(
+    train_data: pd.DataFrame,
+    sbert_params: Dict[str, Any],
+    ridge_params: Dict[str, Any],
+    text_column: str = "sentence",
+    label_column: str = "value",
+    cat_columns: Optional[List[str]] = None,
+    num_columns: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """
+    Train Sentence-BERT + Ridge Regression model treating ordinal labels as continuous 0-100 scale.
+    
+    Args:
+        train_data: Training DataFrame
+        sbert_params: Sentence-BERT parameters
+        ridge_params: Ridge Regression parameters
+        text_column: Name of text column
+        label_column: Name of label column
+        cat_columns: List of categorical column names
+        num_columns: List of numeric column names
+    
+    Returns:
+        Dictionary with trained model and metadata
+    """
+    from sentence_transformers import SentenceTransformer
+    
+    cat_columns = cat_columns or []
+    num_columns = num_columns or []
+    
+    model_name = sbert_params.get('model_name', 'sentence-transformers/distiluse-base-multilingual-cased-v2')
+    batch_size = sbert_params.get('batch_size', 32)
+    
+    print(f"Loading SBERT model: {model_name}")
+    sbert_model = SentenceTransformer(model_name)
+    
+    ordinal_encoder = OrdinalEncoder()
+    y = ordinal_encoder.fit_transform(train_data[label_column].values)
+    
+    print(f"Encoding {len(train_data)} sentences with SBERT...")
+    texts = train_data[text_column].fillna('').tolist()
+    text_embeddings = sbert_model.encode(texts, batch_size=batch_size, show_progress_bar=True)
+    
+    cat_encoder = None
+    cat_features = None
+    if cat_columns:
+        cat_encoder = OneHotEncoder(handle_unknown='ignore', sparse_output=False)
+        cat_data = train_data[cat_columns].fillna('unknown')
+        cat_features = cat_encoder.fit_transform(cat_data)
+    
+    num_scaler = None
+    num_features = None
+    if num_columns:
+        num_scaler = StandardScaler()
+        num_data = train_data[num_columns].fillna(0).values
+        num_features = num_scaler.fit_transform(num_data)
+    
+    features_list = [text_embeddings]
+    if cat_features is not None:
+        features_list.append(cat_features)
+    if num_features is not None:
+        features_list.append(num_features)
+    
+    X = np.hstack(features_list)
+    
+    print(f"Training Ridge Regression on {X.shape[1]} features...")
+    regressor = Ridge(**ridge_params)
+    regressor.fit(X, y)
+    
+    model = SbertOrdinalModel(
+        sbert_model=sbert_model,
+        ordinal_encoder=ordinal_encoder,
+        cat_encoder=cat_encoder,
+        num_scaler=num_scaler,
+        regressor=regressor,
+        cat_columns=cat_columns,
+        num_columns=num_columns,
+        text_column=text_column,
+        batch_size=batch_size,
+    )
+    
+    n_text_features = text_embeddings.shape[1]
+    n_cat_features = cat_features.shape[1] if cat_features is not None else 0
+    n_num_features = len(num_columns)
+    
+    return {
+        "model": model,
+        "model_name": "sbert_ordinal",
+        "sbert_params": sbert_params,
+        "ridge_params": ridge_params,
+        "n_samples_trained": len(train_data),
+        "n_classes": len(ordinal_encoder.classes_),
+        "classes": ordinal_encoder.classes_,
+        "ordinal_mapping": ordinal_encoder.label_to_value,
+        "n_text_features": n_text_features,
+        "n_cat_features": n_cat_features,
+        "n_num_features": n_num_features,
+        "total_features": n_text_features + n_cat_features + n_num_features,
+        "embedding_dim": n_text_features,
+    }
+
+
 def train_all_models(
     train_data: pd.DataFrame,
     tfidf_params: Dict[str, Any],
     logreg_params: Dict[str, Any],
     sbert_params: Dict[str, Any],
+    ridge_params: Dict[str, Any] = None,
     text_column: str = "sentence",
     label_column: str = "value",
     cat_columns: Optional[List[str]] = None,
@@ -346,14 +707,17 @@ def train_all_models(
     Train all classifier models for comparison.
     
     Currently trains:
-    1. TF-IDF + Logistic Regression
-    2. SBERT + Logistic Regression
+    1. TF-IDF + Logistic Regression (classification)
+    2. SBERT + Logistic Regression (classification)
+    3. TF-IDF + Ridge Regression (ordinal regression, 0-100 scale)
+    4. SBERT + Ridge Regression (ordinal regression, 0-100 scale)
     
     Args:
         train_data: Training DataFrame
         tfidf_params: TF-IDF vectorizer parameters
         logreg_params: Logistic Regression parameters
         sbert_params: Sentence-BERT parameters
+        ridge_params: Ridge Regression parameters for ordinal models
         text_column: Name of text column
         label_column: Name of label column
         cat_columns: List of categorical column names
@@ -368,6 +732,8 @@ def train_all_models(
         cat_columns = ['geslacht', 'opleiding', 'politiek_int', 'politiek_pos']
     if num_columns is None:
         num_columns = ['leeftijd.jaar']
+    if ridge_params is None:
+        ridge_params = {'alpha': 1.0}
     
     print("=" * 60)
     print("Training TF-IDF + Logistic Regression...")
@@ -380,6 +746,17 @@ def train_all_models(
     
     print()
     print("=" * 60)
+    print("Training TF-IDF + Ridge (Ordinal 0-100)...")
+    print("=" * 60)
+    models["tfidf_ordinal"] = train_tfidf_ordinal(
+        train_data, tfidf_params, ridge_params,
+        text_column, label_column, cat_columns, num_columns
+    )
+    print(f"TF-IDF + Ordinal: {models['tfidf_ordinal']['total_features']} features")
+    print(f"  Ordinal mapping: {models['tfidf_ordinal']['ordinal_mapping']}")
+    
+    print()
+    print("=" * 60)
     print("Training SBERT + Logistic Regression...")
     print("=" * 60)
     try:
@@ -389,8 +766,21 @@ def train_all_models(
         )
         print(f"SBERT + LogReg: {models['sbert_logreg']['total_features']} features (embedding dim: {models['sbert_logreg']['embedding_dim']})")
     except Exception as e:
-        print(f"Warning: SBERT training failed: {e}")
-        print("Continuing with TF-IDF model only...")
+        print(f"Warning: SBERT LogReg training failed: {e}")
+    
+    print()
+    print("=" * 60)
+    print("Training SBERT + Ridge (Ordinal 0-100)...")
+    print("=" * 60)
+    try:
+        models["sbert_ordinal"] = train_sbert_ordinal(
+            train_data, sbert_params, ridge_params,
+            text_column, label_column, cat_columns, num_columns
+        )
+        print(f"SBERT + Ordinal: {models['sbert_ordinal']['total_features']} features (embedding dim: {models['sbert_ordinal']['embedding_dim']})")
+        print(f"  Ordinal mapping: {models['sbert_ordinal']['ordinal_mapping']}")
+    except Exception as e:
+        print(f"Warning: SBERT Ordinal training failed: {e}")
     
     print()
     print(f"Successfully trained {len(models)} models.")
