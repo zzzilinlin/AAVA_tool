@@ -9,12 +9,17 @@ from .nodes import (
 
 
 def create_pipeline(**kwargs) -> Pipeline:
-    """Create the model evaluation pipeline."""
+    """Create the model evaluation pipeline for harmfulness classification."""
     return Pipeline(
         [
             node(
                 func=evaluate_all_models,
-                inputs=["trained_models", "test_data"],
+                inputs=[
+                    "trained_models",
+                    "test_data",
+                    "params:text_column",
+                    "params:label_column",
+                ],
                 outputs="evaluation_results",
                 name="evaluate_all_models_node",
             ),

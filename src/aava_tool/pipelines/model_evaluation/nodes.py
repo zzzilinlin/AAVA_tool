@@ -1,8 +1,7 @@
-"""Model evaluation nodes for AAVA."""
+"""Model evaluation nodes for AAVA Harmfulness Classification."""
 import pandas as pd
 import numpy as np
 from typing import Dict, Any, List
-import json
 from sklearn.metrics import (
     accuracy_score,
     precision_score,
@@ -17,7 +16,7 @@ def evaluate_single_model(
     model_data: Dict[str, Any],
     test_data: pd.DataFrame,
     text_column: str = "sentence",
-    label_column: str = "value",
+    label_column: str = "harmfulness_level",
 ) -> Dict[str, Any]:
     """
     Evaluate a single model on test data.
@@ -33,6 +32,7 @@ def evaluate_single_model(
     """
     model = model_data["model"]
     model_name = model_data["model_name"]
+    model_type = model_data.get("model_type", "unknown")
     
     y_true = test_data[label_column].values
     
@@ -58,6 +58,7 @@ def evaluate_single_model(
     
     return {
         "model_name": model_name,
+        "model_type": model_type,
         "accuracy": float(accuracy),
         "precision_weighted": float(precision),
         "recall_weighted": float(recall),
@@ -76,7 +77,7 @@ def evaluate_all_models(
     trained_models: Dict[str, Any],
     test_data: pd.DataFrame,
     text_column: str = "sentence",
-    label_column: str = "value",
+    label_column: str = "harmfulness_level",
 ) -> Dict[str, Any]:
     """
     Evaluate all trained models and compare performance.
@@ -118,6 +119,7 @@ def create_comparison_report(
     for model_name, metrics in evaluation_results.items():
         comparison.append({
             "model_name": model_name,
+            "model_type": metrics.get("model_type", "unknown"),
             "accuracy": metrics["accuracy"],
             "f1_weighted": metrics["f1_weighted"],
             "precision_weighted": metrics["precision_weighted"],
@@ -132,10 +134,23 @@ def create_comparison_report(
     best_accuracy_model = comparison_df.loc[comparison_df["accuracy"].idxmax(), "model_name"]
     best_f1_model = comparison_df.loc[comparison_df["f1_weighted"].idxmax(), "model_name"]
     
+    general_models = comparison_df[comparison_df["model_type"] == "general"]
+    feature_aware_models = comparison_df[comparison_df["model_type"] == "feature_aware"]
+    
+    best_general = None
+    best_feature_aware = None
+    
+    if len(general_models) > 0:
+        best_general = general_models.loc[general_models["f1_weighted"].idxmax(), "model_name"]
+    if len(feature_aware_models) > 0:
+        best_feature_aware = feature_aware_models.loc[feature_aware_models["f1_weighted"].idxmax(), "model_name"]
+    
     report = {
         "comparison_table": comparison_df.to_dict(orient="records"),
         "best_accuracy_model": best_accuracy_model,
         "best_f1_model": best_f1_model,
+        "best_general_model": best_general,
+        "best_feature_aware_model": best_feature_aware,
         "summary": {
             "total_models_evaluated": len(comparison),
             "accuracy_range": {
@@ -194,42 +209,62 @@ def generate_evaluation_summary(
     """
     lines = [
         "=" * 60,
-        "AAVA Model Evaluation Summary",
+        "AAVA Harmfulness Classification - Model Evaluation Summary",
         "=" * 60,
         "",
         f"Total samples in dataset: {data_statistics.get('total_samples', 'N/A')}",
         f"Average text length: {data_statistics.get('avg_text_length', 0):.0f} characters",
         "",
-        "Label Distribution:",
+        "Harmfulness Level Distribution:",
     ]
     
     if "label_distribution" in data_statistics:
-        for label, count in data_statistics["label_distribution"].items():
+        for label, count in sorted(data_statistics["label_distribution"].items()):
             lines.append(f"  - {label}: {count}")
     
     lines.extend([
         "",
         "-" * 60,
-        "Model Performance Comparison",
+        "GENERAL MODELS (Text Only - No Demographics)",
         "-" * 60,
     ])
     
     for model in comparison_report.get("comparison_table", []):
-        lines.extend([
-            f"\n{model['model_name'].upper()}:",
-            f"  Accuracy:  {model['accuracy']:.4f}",
-            f"  F1 Score:  {model['f1_weighted']:.4f}",
-            f"  Precision: {model['precision_weighted']:.4f}",
-            f"  Recall:    {model['recall_weighted']:.4f}",
-        ])
+        if model.get("model_type") == "general":
+            lines.extend([
+                f"\n{model['model_name'].upper()}:",
+                f"  Accuracy:  {model['accuracy']:.4f}",
+                f"  F1 Score:  {model['f1_weighted']:.4f}",
+                f"  Precision: {model['precision_weighted']:.4f}",
+                f"  Recall:    {model['recall_weighted']:.4f}",
+            ])
+    
+    lines.extend([
+        "",
+        "-" * 60,
+        "FEATURE-AWARE MODELS (Text + Demographics)",
+        "-" * 60,
+    ])
+    
+    for model in comparison_report.get("comparison_table", []):
+        if model.get("model_type") == "feature_aware":
+            lines.extend([
+                f"\n{model['model_name'].upper()}:",
+                f"  Accuracy:  {model['accuracy']:.4f}",
+                f"  F1 Score:  {model['f1_weighted']:.4f}",
+                f"  Precision: {model['precision_weighted']:.4f}",
+                f"  Recall:    {model['recall_weighted']:.4f}",
+            ])
     
     lines.extend([
         "",
         "-" * 60,
         "Recommendations",
         "-" * 60,
-        f"Best model by Accuracy: {comparison_report.get('best_accuracy_model', 'N/A')}",
-        f"Best model by F1 Score: {comparison_report.get('best_f1_model', 'N/A')}",
+        f"Best General Model: {comparison_report.get('best_general_model', 'N/A')}",
+        f"Best Feature-Aware Model: {comparison_report.get('best_feature_aware_model', 'N/A')}",
+        f"Best Overall (Accuracy): {comparison_report.get('best_accuracy_model', 'N/A')}",
+        f"Best Overall (F1 Score): {comparison_report.get('best_f1_model', 'N/A')}",
         "",
         "=" * 60,
     ])
