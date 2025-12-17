@@ -476,15 +476,16 @@ def train_all_models(
     label_column: str = "harmfulness_level",
     cat_columns: Optional[List[str]] = None,
     num_columns: Optional[List[str]] = None,
+    skip_sbert: bool = False,
 ) -> Dict[str, Any]:
     """
     Train all classifier models for comparison.
     
-    Trains 4 models:
+    Trains up to 4 models:
     1. TF-IDF General (text only)
     2. TF-IDF Feature-Aware (text + demographics)
-    3. SBERT General (text only)
-    4. SBERT Feature-Aware (text + demographics)
+    3. SBERT General (text only) - skipped if skip_sbert=True
+    4. SBERT Feature-Aware (text + demographics) - skipped if skip_sbert=True
     
     Args:
         train_data: Training DataFrame
@@ -495,6 +496,7 @@ def train_all_models(
         label_column: Name of label column
         cat_columns: List of categorical column names
         num_columns: List of numeric column names
+        skip_sbert: If True, skip SBERT model training (faster)
     
     Returns:
         Dictionary containing all trained models
@@ -528,34 +530,40 @@ def train_all_models(
     print(f"TF-IDF Feature-Aware: {models['tfidf_feature_aware']['total_features']} total features")
     print(f"  - Text: {models['tfidf_feature_aware']['n_text_features']}, Cat: {models['tfidf_feature_aware']['n_cat_features']}, Num: {models['tfidf_feature_aware']['n_num_features']}")
     
-    print()
-    print("=" * 60)
-    print("Training SBERT General Model (text only)...")
-    print("=" * 60)
-    try:
-        models["sbert_general"] = train_sbert_model(
-            train_data, sbert_params, logreg_params,
-            text_column, label_column, cat_columns, num_columns,
-            model_type="general"
-        )
-        print(f"SBERT General: {models['sbert_general']['total_features']} features (embedding dim: {models['sbert_general']['embedding_dim']})")
-    except Exception as e:
-        print(f"Warning: SBERT General training failed: {e}")
-    
-    print()
-    print("=" * 60)
-    print("Training SBERT Feature-Aware Model (text + demographics)...")
-    print("=" * 60)
-    try:
-        models["sbert_feature_aware"] = train_sbert_model(
-            train_data, sbert_params, logreg_params,
-            text_column, label_column, cat_columns, num_columns,
-            model_type="feature_aware"
-        )
-        print(f"SBERT Feature-Aware: {models['sbert_feature_aware']['total_features']} total features")
-        print(f"  - Text: {models['sbert_feature_aware']['n_text_features']}, Cat: {models['sbert_feature_aware']['n_cat_features']}, Num: {models['sbert_feature_aware']['n_num_features']}")
-    except Exception as e:
-        print(f"Warning: SBERT Feature-Aware training failed: {e}")
+    if skip_sbert:
+        print()
+        print("=" * 60)
+        print("Skipping SBERT models (skip_sbert=True)")
+        print("=" * 60)
+    else:
+        print()
+        print("=" * 60)
+        print("Training SBERT General Model (text only)...")
+        print("=" * 60)
+        try:
+            models["sbert_general"] = train_sbert_model(
+                train_data, sbert_params, logreg_params,
+                text_column, label_column, cat_columns, num_columns,
+                model_type="general"
+            )
+            print(f"SBERT General: {models['sbert_general']['total_features']} features (embedding dim: {models['sbert_general']['embedding_dim']})")
+        except Exception as e:
+            print(f"Warning: SBERT General training failed: {e}")
+        
+        print()
+        print("=" * 60)
+        print("Training SBERT Feature-Aware Model (text + demographics)...")
+        print("=" * 60)
+        try:
+            models["sbert_feature_aware"] = train_sbert_model(
+                train_data, sbert_params, logreg_params,
+                text_column, label_column, cat_columns, num_columns,
+                model_type="feature_aware"
+            )
+            print(f"SBERT Feature-Aware: {models['sbert_feature_aware']['total_features']} total features")
+            print(f"  - Text: {models['sbert_feature_aware']['n_text_features']}, Cat: {models['sbert_feature_aware']['n_cat_features']}, Num: {models['sbert_feature_aware']['n_num_features']}")
+        except Exception as e:
+            print(f"Warning: SBERT Feature-Aware training failed: {e}")
     
     print()
     print(f"Successfully trained {len(models)} models.")

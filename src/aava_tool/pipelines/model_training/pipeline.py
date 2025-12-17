@@ -18,6 +18,7 @@ def create_pipeline(**kwargs) -> Pipeline:
                     "params:label_column",
                     "params:cat_columns",
                     "params:num_columns",
+                    "params:skip_sbert",
                 ],
                 outputs="trained_models",
                 name="train_all_models_node",

@@ -31,3 +31,5 @@ logistic_regression:
 sbert:
   model_name: "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
   batch_size: 64
+
+skip_sbert: true
