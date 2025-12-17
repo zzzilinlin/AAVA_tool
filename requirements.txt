@@ -13,3 +13,5 @@ google-genai
 sentence-transformers
 setfit
 torch
+flask
+flask-cors

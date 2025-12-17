@@ -61,6 +61,30 @@ class TfidfModel:
         return result
 
 
+class TfidfSoftLabelModel:
+    """TF-IDF model trained on soft labels (probability distributions from pooled annotations)."""
+    
+    def __init__(self, tfidf_vectorizer, classes, classifier, text_column):
+        self.tfidf_vectorizer = tfidf_vectorizer
+        self.classes = classes
+        self.classifier = classifier
+        self.text_column = text_column
+    
+    def predict(self, data: pd.DataFrame) -> np.ndarray:
+        """Return the class with highest probability."""
+        probs = self.predict_proba(data)
+        predictions = np.argmax(probs, axis=1)
+        return np.array([self.classes[i] for i in predictions])
+    
+    def predict_proba(self, data: pd.DataFrame) -> np.ndarray:
+        """Return predicted probabilities for each class."""
+        X = self.tfidf_vectorizer.transform(data[self.text_column].fillna(''))
+        return self.classifier.predict_proba(X)
+    
+    def _transform_features(self, data: pd.DataFrame) -> csr_matrix:
+        return self.tfidf_vectorizer.transform(data[self.text_column].fillna(''))
+
+
 class SbertModel:
     """Sentence-BERT + Logistic Regression model with optional categorical and numeric features."""
     
@@ -228,6 +252,111 @@ def train_tfidf_model(
         "n_cat_features": n_cat_features,
         "n_num_features": n_num_features,
         "total_features": n_text_features + n_cat_features + n_num_features,
+    }
+
+
+def train_tfidf_soft_label_model(
+    train_data: pd.DataFrame,
+    tfidf_params: Dict[str, Any],
+    logreg_params: Dict[str, Any],
+    text_column: str = "sentence",
+    label_classes: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """
+    Train TF-IDF model using soft labels (pooled annotation distributions).
+    
+    This model is trained on probability distributions rather than hard labels,
+    using sample weighting to approximate cross-entropy loss on soft targets.
+    Each sample contributes to training proportionally to the soft label distribution.
+    
+    Args:
+        train_data: Training DataFrame with soft_* columns for each class
+        tfidf_params: TF-IDF vectorizer parameters
+        logreg_params: Logistic Regression parameters
+        text_column: Name of text column
+        label_classes: List of label class names (e.g., ['high', 'low', 'medium'])
+    
+    Returns:
+        Dictionary with trained model and metadata
+    """
+    if label_classes is None:
+        soft_cols = [c for c in train_data.columns if c.startswith('soft_')]
+        label_classes = sorted([c.replace('soft_', '') for c in soft_cols])
+    
+    soft_columns = [f'soft_{cls}' for cls in label_classes]
+    
+    for col in soft_columns:
+        if col not in train_data.columns:
+            raise ValueError(f"Missing soft label column: {col}. Run pool_annotations_to_soft_labels first.")
+    
+    print(f"Training TF-IDF Soft Label model on {len(train_data)} samples")
+    print(f"Label classes: {label_classes}")
+    
+    ngram_range = tfidf_params.get('ngram_range', (1, 2))
+    if isinstance(ngram_range, list):
+        ngram_range = tuple(ngram_range)
+    
+    tfidf = TfidfVectorizer(
+        max_features=tfidf_params.get('max_features', 5000),
+        ngram_range=ngram_range,
+        min_df=tfidf_params.get('min_df', 2),
+        stop_words=DUTCH_STOPWORDS,
+        lowercase=True,
+        strip_accents='unicode',
+    )
+    
+    X_orig = tfidf.fit_transform(train_data[text_column].fillna(''))
+    y_soft = train_data[soft_columns].values
+    
+    texts_expanded = []
+    labels_expanded = []
+    weights_expanded = []
+    
+    for idx in range(len(train_data)):
+        for class_idx, cls in enumerate(label_classes):
+            prob = y_soft[idx, class_idx]
+            if prob > 0:
+                texts_expanded.append(idx)
+                labels_expanded.append(class_idx)
+                weights_expanded.append(prob)
+    
+    from scipy.sparse import vstack as sparse_vstack
+    X_expanded = sparse_vstack([X_orig[i] for i in texts_expanded])
+    y_expanded = np.array(labels_expanded)
+    sample_weights = np.array(weights_expanded)
+    
+    print(f"Expanded training set: {len(y_expanded)} weighted samples from {len(train_data)} originals")
+    
+    logreg_params_copy = logreg_params.copy()
+    logreg_params_copy.pop('class_weight', None)
+    
+    classifier = LogisticRegression(**logreg_params_copy)
+    classifier.fit(X_expanded, y_expanded, sample_weight=sample_weights)
+    
+    model = TfidfSoftLabelModel(
+        tfidf_vectorizer=tfidf,
+        classes=label_classes,
+        classifier=classifier,
+        text_column=text_column,
+    )
+    
+    n_text_features = X_orig.shape[1]
+    
+    return {
+        "model": model,
+        "model_name": "tfidf_general_soft",
+        "model_type": "general_soft",
+        "tfidf_params": tfidf_params,
+        "logreg_params": logreg_params,
+        "n_samples_trained": len(train_data),
+        "n_expanded_samples": len(y_expanded),
+        "n_classes": len(label_classes),
+        "classes": label_classes,
+        "n_text_features": n_text_features,
+        "n_cat_features": 0,
+        "n_num_features": 0,
+        "total_features": n_text_features,
+        "uses_soft_labels": True,
     }
 
 

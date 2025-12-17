@@ -2,20 +2,28 @@
 
 ## Overview
 AAVA is a machine learning pipeline for classifying Dutch text content by harmfulness level. The tool trains two types of models:
-1. **General Models** - Classify harmfulness based solely on text content (sentence)
+1. **General Models** - Classify harmfulness based solely on text content (sentence), using soft labels (pooled annotations)
 2. **Feature-Aware Models** - Classify harmfulness using text + demographic features to predict how different groups perceive harmfulness
 
-## Recent Changes (December 11, 2025)
+## Recent Changes (December 16, 2025)
+- Added Flask API for JavaScript frontend integration (port 5000)
+- Implemented soft label training for general model (pools multiple annotators into probability distributions)
+- API endpoints: `/predict/general`, `/predict/feature-aware`, `/predict/batch`, `/models`, `/health`
+- Models exported to portable pickle format with standalone predictors
+- CORS enabled for cross-origin requests
+
+## Previous Updates (December 11, 2025)
 - Implemented dual model approach: General (text-only) vs Feature-Aware (text + demographics)
 - Updated for 3-class harmfulness classification: "low", "medium", "high"
 - New data format with `sentence` and `article` columns
 - Demographic features: gender, age, education_level, ethnicity, nationality
 - TF-IDF General model achieves 73% accuracy on dummy data (best performer)
-- SBERT using paraphrase-multilingual-mpnet-base-v2 (768-dim embeddings)
 
 ## Project Structure
 ```
 .
+├── api/                     # Flask API for model serving
+│   └── app.py              # API endpoints
 ├── conf/                    # Kedro configuration files
 │   ├── base/               # Base configuration
 │   │   ├── catalog.yml     # Data catalog definitions
@@ -25,13 +33,13 @@ AAVA is a machine learning pipeline for classifying Dutch text content by harmfu
 │   ├── 01_raw/            # Raw input data (CSV files)
 │   ├── 02_intermediate/   # Preprocessed data
 │   ├── 03_primary/        # Train/test splits
-│   ├── 06_models/         # Trained model files
+│   ├── 06_models/         # Trained model files (with standalone predictors)
 │   ├── 07_model_output/   # Model predictions/evaluations
 │   └── 08_reporting/      # Reports and summaries
 ├── src/aava_tool/         # Main source code
 │   └── pipelines/        # Kedro pipelines
-│       ├── data_processing/  # Data loading and preprocessing
-│       ├── model_training/   # Train classifiers
+│       ├── data_processing/  # Data loading and preprocessing (includes soft label pooling)
+│       ├── model_training/   # Train classifiers (hard + soft label)
 │       └── model_evaluation/ # Evaluate and compare models
 └── tests/                 # Unit tests
 ```
@@ -86,12 +94,63 @@ Edit `conf/base/parameters.yml` to adjust:
 - `sbert`: model_name, batch_size
 - `logistic_regression`: max_iter, C, class_weight
 
+## API Usage (Flask)
+
+The API server runs on port 5000 and provides endpoints for JavaScript frontend integration.
+
+### Start API
+```bash
+python api/app.py
+```
+
+### Endpoints
+
+**GET /models** - List available models
+```bash
+curl http://localhost:5000/models
+```
+
+**POST /predict/general** - Predict using text-only model
+```bash
+curl -X POST http://localhost:5000/predict/general \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Dit is een Nederlandse zin."}'
+```
+
+**POST /predict/feature-aware** - Predict with demographics
+```bash
+curl -X POST http://localhost:5000/predict/feature-aware \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Dit is een zin.", "gender": "male", "age": 30, "education_level": "high", "ethnicity": "Dutch", "nationality": "Dutch"}'
+```
+
+**POST /predict/batch** - Batch predictions
+```bash
+curl -X POST http://localhost:5000/predict/batch \
+  -H "Content-Type: application/json" \
+  -d '{"model": "general", "texts": ["Zin 1", "Zin 2"]}'
+```
+
+### Response Format
+```json
+{
+  "model": "general_soft",
+  "result": {
+    "text": "Dit is een zin.",
+    "prediction": "low",
+    "confidence": 0.87,
+    "probabilities": {"high": 0.03, "low": 0.87, "medium": 0.10}
+  }
+}
+```
+
 ## Dependencies
 - Python 3.11+
 - Kedro
 - scikit-learn
 - pandas, numpy
 - sentence-transformers (for SBERT models)
+- flask, flask-cors (for API)
 
 ## Data Format
 Input CSV file in `data/01_raw/`:

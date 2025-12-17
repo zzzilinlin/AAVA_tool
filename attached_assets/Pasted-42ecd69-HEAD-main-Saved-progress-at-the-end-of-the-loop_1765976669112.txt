@@ -1,0 +1,32 @@
+42ecd69 (HEAD -> main) Saved progress at the end of the loop
+fda6721 Add a Flask API for model predictions and soft label training
+ .replit                                         |  20 ++++++++
+ api/app.py                                      | 336 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ replit.md                                       |  71 +++++++++++++++++++++++++---
+ requirements.txt                                |   2 +
+ src/aava_tool/pipelines/model_training/nodes.py |  30 +++++++++---
+ 5 files changed, 447 insertions(+), 12 deletions(-)
+e3daec1 Add soft label pooling and training for general model
+ src/aava_tool/pipelines/data_processing/nodes.py |  61 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ src/aava_tool/pipelines/model_training/nodes.py  | 111 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 172 insertions(+)
+e14adfd Transitioned from Plan to Build mode
+8962021 Saved progress at the end of the loop
+cd9c950 Export general and feature-aware TF-IDF models into separate folders
+ exported_model/README.md      |  59 ---------------------------------------------------
+ exported_model/all_models.pkl | Bin 2242990609 -> 0 bytes
+ exported_model/metadata.json  |  19 -----------------
+ exported_model/model.pkl      | Bin 84373 -> 0 bytes
+ exported_model/predictor.py   | 171 ---------------------------------------------------------------------------------------------------------------------------------------------------
+ 5 files changed, 249 deletions(-)
+36e50bb Transitioned from Plan to Build mode
+9dae48c Add ability to export trained model for frontend use
+ exported_model/README.md      |  59 +++++++++++++++++++++++++++
+ exported_model/all_models.pkl | Bin 0 -> 2242990609 bytes
+ exported_model/metadata.json  |  19 +++++++++
+ exported_model/model.pkl      | Bin 0 -> 84373 bytes
+ exported_model/predictor.py   | 171 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ src/aava_tool/export_model.py | 320 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ 6 files changed, 569 insertions(+)
+~/workspace$ ^C
+~/workspace$ 

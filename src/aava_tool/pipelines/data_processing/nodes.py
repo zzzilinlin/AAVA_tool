@@ -96,6 +96,67 @@ def create_train_test_split(
     return train_df.reset_index(drop=True), test_df.reset_index(drop=True)
 
 
+def pool_annotations_to_soft_labels(
+    df: pd.DataFrame,
+    text_column: str = "sentence",
+    label_column: str = "harmfulness_level",
+    label_classes: List[str] = None,
+) -> pd.DataFrame:
+    """
+    Pool multiple annotations per sentence into soft labels (probability vectors).
+    
+    For sentences with multiple annotations from different annotators, this function
+    calculates the proportion of each harmfulness label, creating a soft target
+    distribution instead of a single hard label.
+    
+    Args:
+        df: Input DataFrame with potentially multiple rows per sentence.
+        text_column: Name of text column to group by.
+        label_column: Name of label column.
+        label_classes: List of all possible label classes. If None, inferred from data.
+    
+    Returns:
+        DataFrame with one row per unique sentence and soft label columns.
+    """
+    if label_classes is None:
+        label_classes = sorted(df[label_column].unique().tolist())
+    
+    print(f"Pooling annotations for {len(df)} rows into soft labels...")
+    print(f"Label classes: {label_classes}")
+    
+    grouped = df.groupby(text_column)
+    
+    pooled_rows = []
+    for sentence, group in grouped:
+        label_counts = group[label_column].value_counts()
+        total = len(group)
+        
+        soft_labels = {}
+        for cls in label_classes:
+            soft_labels[f"soft_{cls}"] = label_counts.get(cls, 0) / total
+        
+        majority_label = label_counts.idxmax()
+        
+        article = group['article'].iloc[0] if 'article' in group.columns else ""
+        
+        row = {
+            text_column: sentence,
+            'article': article,
+            label_column: majority_label,
+            'n_annotations': total,
+            **soft_labels,
+        }
+        pooled_rows.append(row)
+    
+    pooled_df = pd.DataFrame(pooled_rows)
+    
+    print(f"Pooled {len(df)} annotations into {len(pooled_df)} unique sentences")
+    print(f"Annotation count distribution:")
+    print(pooled_df['n_annotations'].describe())
+    
+    return pooled_df
+
+
 def extract_features(
     df: pd.DataFrame, 
     text_column: str = "sentence",

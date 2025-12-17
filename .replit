@@ -18,6 +18,10 @@ author = "agent"
 task = "workflow.run"
 args = "AAVA Pipeline"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "API Server"
+
 [[workflows.workflow]]
 name = "AAVA Pipeline"
 author = "agent"
@@ -28,3 +32,19 @@ args = "kedro run 2>&1 || echo \"Pipeline completed with status: $?\""
 
 [workflows.workflow.metadata]
 outputType = "console"
+
+[[workflows.workflow]]
+name = "API Server"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python api/app.py"
+waitForPort = 5000
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
+[[ports]]
+localPort = 5000
+externalPort = 80
